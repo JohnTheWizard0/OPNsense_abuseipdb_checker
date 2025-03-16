@@ -220,10 +220,12 @@
     </div>
     
     <!-- Statistics & Threats Tabs -->
+
     <div class="content-box">
         <ul class="nav nav-tabs" data-tabs="tabs" id="abuseipdb-tabs">
             <li class="active"><a data-toggle="tab" href="#stats">{{ lang._('Statistics') }}</a></li>
             <li><a data-toggle="tab" href="#threats">{{ lang._('Recent Threats') }}</a></li>
+            <li><a data-toggle="tab" href="#logs">{{ lang._('Logs') }}</a></li>
         </ul>
         <div class="tab-content content-box-main">
             <!-- Statistics Tab -->
@@ -272,8 +274,27 @@
                     </tbody>
                 </table>
             </div>
+            
+            <!-- Logs Tab -->
+            <div id="logs" class="tab-pane">
+                <div class="row">
+                    <div class="col-md-12">
+                        <button class="btn btn-sm btn-info pull-right" id="refreshLogsBtn">
+                            <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                        </button>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="log-container" style="height: 400px; overflow-y: scroll; margin-top: 10px; background-color: #f5f5f5; padding: 10px; font-family: monospace; font-size: 12px;">
+                            <pre id="log-content" style="white-space: pre-wrap;"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
+
 </div>
 
 <script>
@@ -302,18 +323,89 @@
 
         // Save settings button
         $("#saveAct").click(function() {
-            saveFormToEndpoint(
-                '/api/abuseipdbchecker/settings/set',
-                abuseIPDBModel,
-                function() {
-                    ajaxCall(
-                        '/api/abuseipdbchecker/service/reconfigure',
-                        {},
-                        function(data, status) {
-                            // Update status after save
-                            updateStats();
+            // First collect all form values
+            var formData = {};
+            
+            // Get all form input fields and add them to the formData object
+            $("#abuseipdbchecker-settings input, #abuseipdbchecker-settings select").each(function() {
+                var id = $(this).attr('id');
+                if (id) {
+                    var path = id.split('.');
+                    if (path.length >= 3 && path[0] === 'abuseipdbchecker') {
+                        // Handle checkboxes differently
+                        if ($(this).attr('type') === 'checkbox') {
+                            setValue(formData, id, $(this).is(':checked') ? '1' : '0');
+                        } else {
+                            setValue(formData, id, $(this).val());
                         }
-                    );
+                    }
+                }
+            });
+            
+            // Helper function to set nested values in the object
+            function setValue(obj, path, value) {
+                var parts = path.split('.');
+                var current = obj;
+                
+                for (var i = 0; i < parts.length - 1; i++) {
+                    if (!current[parts[i]]) {
+                        current[parts[i]] = {};
+                    }
+                    current = current[parts[i]];
+                }
+                
+                current[parts[parts.length - 1]] = value;
+            }
+            
+            // Now save the form data
+            ajaxCall(
+                '/api/abuseipdbchecker/settings/set',
+                formData,
+                function(data, status) {
+                    if (data.result === 'saved') {
+                        // Show success message
+                        BootstrapDialog.show({
+                            type: BootstrapDialog.TYPE_SUCCESS,
+                            title: '{{ lang._("Settings saved") }}',
+                            message: '{{ lang._("Settings have been saved successfully.") }}',
+                            buttons: [{
+                                label: '{{ lang._("Close") }}',
+                                action: function(dialogRef) {
+                                    dialogRef.close();
+                                }
+                            }]
+                        });
+                        
+                        // Reconfigure service
+                        ajaxCall(
+                            '/api/abuseipdbchecker/service/reconfigure',
+                            {},
+                            function(data, status) {
+                                // Update stats after save
+                                updateStats();
+                                updateThreats();
+                            }
+                        );
+                    } else if (data.validations) {
+                        // Show validation errors
+                        var errorMsg = '{{ lang._("Please correct the following errors:") }}<br/><ul>';
+                        $.each(data.validations, function(key, value) {
+                            errorMsg += '<li>' + key + ': ' + value + '</li>';
+                        });
+                        errorMsg += '</ul>';
+                        
+                        BootstrapDialog.show({
+                            type: BootstrapDialog.TYPE_DANGER,
+                            title: '{{ lang._("Error") }}',
+                            message: errorMsg,
+                            buttons: [{
+                                label: '{{ lang._("Close") }}',
+                                action: function(dialogRef) {
+                                    dialogRef.close();
+                                }
+                            }]
+                        });
+                    }
                 }
             );
         });
@@ -384,5 +476,80 @@
                 }
             );
         }
+
+        // Refresh logs button
+        $("#refreshLogsBtn").click(function() {
+            updateLogs();
+        });
+
+        // Update logs function
+        // Update logs function - properly formatted AJAX request
+        function updateLogs() {
+            var refreshBtn = $("#refreshLogsBtn");
+            refreshBtn.prop('disabled', true);
+            refreshBtn.html('<i class="fa fa-spinner fa-spin"></i> {{ lang._("Loading...") }}');
+            
+            ajaxCall(
+                url="/api/abuseipdbchecker/settings/logs",
+                sendData={},
+                callback=function(data,status){
+                    if (data && data.result === 'ok') {
+                        var logContentDiv = $("#log-content");
+                        logContentDiv.empty();
+                        
+                        if (data.logs && data.logs.length > 0) {
+                            // Process and colorize log entries
+                            var logHtml = '';
+                            data.logs.forEach(function(logEntry) {
+                                var colorClass = '';
+                                if (logEntry.toLowerCase().includes('error')) {
+                                    colorClass = 'text-danger';
+                                } else if (logEntry.toLowerCase().includes('warning')) {
+                                    colorClass = 'text-warning';
+                                } else if (logEntry.toLowerCase().includes('threat')) {
+                                    colorClass = 'text-danger';
+                                } else if (logEntry.toLowerCase().includes('check')) {
+                                    colorClass = 'text-info';
+                                }
+                                
+                                logHtml += '<div class="' + colorClass + '">' + escapeHtml(logEntry) + '</div>';
+                            });
+                            
+                            logContentDiv.html(logHtml);
+                            
+                            // Scroll to the bottom of the log container
+                            var logContainer = $(".log-container");
+                            logContainer.scrollTop(logContainer.prop('scrollHeight'));
+                        } else {
+                            logContentDiv.html('<span class="text-muted">{{ lang._("No log entries found") }}</span>');
+                        }
+                    } else {
+                        $("#log-content").html('<span class="text-danger">{{ lang._("Error loading logs") }}</span>');
+                    }
+                    
+                    // Reset button
+                    refreshBtn.prop('disabled', false);
+                    refreshBtn.html('<i class="fa fa-refresh"></i> {{ lang._("Refresh") }}');
+                }
+            );
+        }
+
+        // Helper function to escape HTML
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // Load logs when the tab is shown
+        $('a[data-toggle="tab"]').on('shown.bs.tab', function(e) {
+            if ($(e.target).attr('href') === '#logs') {
+                updateLogs();
+            }
+        });
+
     });
 </script>

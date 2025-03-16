@@ -121,6 +121,21 @@ function getStats() {
     return json_encode($stats);
 }
 
+// Get log entries
+function getLogs() {
+    $logFile = '/var/log/abuseipdb_checker.log';
+    
+    if (!file_exists($logFile)) {
+        return "Log file does not exist";
+    }
+    
+    // Get the last 500 lines from the log file
+    $output = [];
+    exec("tail -n 500 $logFile 2>&1", $output);
+    
+    return implode("\n", $output);
+}
+
 // Get recent threats
 function getThreats() {
     $dbFile = '/var/db/abuseipdb_checker.db';
@@ -177,6 +192,10 @@ switch ($action) {
         
     case 'threats':
         echo getThreats();
+        break;
+
+    case 'logs':
+        echo getLogs();
         break;
         
     default:

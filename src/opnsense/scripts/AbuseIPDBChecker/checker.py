@@ -23,6 +23,7 @@ import requests
 import argparse
 import ipaddress
 import subprocess
+import logging
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -31,6 +32,25 @@ from configparser import ConfigParser
 # Default configuration file path
 CONFIG_FILE = '/usr/local/etc/abuseipdb_checker.conf'
 DB_FILE = '/var/db/abuseipdb_checker.db'
+
+# Configure logging
+log_file = '/var/log/abuseipdb_checker.log'
+logging.basicConfig(
+    filename=log_file,
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Add a console handler as well for direct output
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+console.setFormatter(formatter)
+logging.getLogger('').addHandler(console)
+
+# Create logger
+logger = logging.getLogger('abuseipdb_checker')
 
 class AbuseIPDBChecker:
     def __init__(self, config_path=CONFIG_FILE):
@@ -79,8 +99,8 @@ class AbuseIPDBChecker:
         with open(config_path, 'w') as configfile:
             self.config.write(configfile)
         
-        print(f"Created default configuration file at {config_path}")
-        print("Please edit this file to set your API key and other settings")
+        logger.info(f"Created default configuration file at {config_path}")
+        logger.info("Please edit this file to set your API key and other settings")
         sys.exit(1)
 
     def init_database(self):
@@ -149,8 +169,6 @@ class AbuseIPDBChecker:
                     
                 # Extract connection details
                 try:
-                    # Sample log format (adjust according to your actual format):
-                    # Mar 16 10:36:18 firewall filterlog: 5,16,0,,,0,0x0,,1,tcp,44,192.0.2.1,203.0.113.2,12345,80,0,S
                     parts = line.split()
                     
                     # Find the protocol
@@ -174,7 +192,6 @@ class AbuseIPDBChecker:
                         src_ip = parts[protocol_idx + 2]
                         dst_ip = parts[protocol_idx + 3]
                         
-                        # For TCP/UDP, grab port information
                         dst_port = "n/a"
                         if protocol in ('tcp', 'udp') and len(parts) >= protocol_idx + 5:
                             dst_port = parts[protocol_idx + 4]
@@ -209,12 +226,12 @@ class AbuseIPDBChecker:
                             conn.commit()
                             conn.close()
                             
-                except (ValueError, IndexError) as e:
+                except (ValueError, IndexError):
                     # Skip malformed log lines
                     continue
                                 
         except Exception as e:
-            print(f"Error parsing firewall logs: {e}")
+            logger.error(f"Error parsing firewall logs: {e}")
             
         return connection_data
         
@@ -257,7 +274,7 @@ class AbuseIPDBChecker:
         if result:
             checks_today = result[0]
             if checks_today >= daily_limit:
-                print(f"Daily API check limit of {daily_limit} reached. Skipping remaining IPs.")
+                logger.warning(f"Daily API check limit of {daily_limit} reached. Skipping remaining IPs.")
                 conn.close()
                 return False
         
@@ -345,7 +362,7 @@ class AbuseIPDBChecker:
                 return is_threat
                 
         except Exception as e:
-            print(f"Error checking IP {ip} against AbuseIPDB: {e}")
+            logger.error(f"Error checking IP {ip} against AbuseIPDB: {e}")
             
         return False
         
@@ -462,18 +479,18 @@ class AbuseIPDBChecker:
                 server.login(smtp_user, smtp_pass)
             server.send_message(msg)
             server.quit()
-            print(f"Sent threat notification email for IP {ip}")
+            logger.warning(f"Potential threat: Sent notification email for IP {ip} with score {score}")
         except Exception as e:
-            print(f"Error sending email: {e}")
+            logger.error(f"Error sending email: {e}")
     
     def run(self):
         """Main execution method"""
-        print("Starting OPNsense AbuseIPDB Checker...")
+        logger.info("Starting OPNsense AbuseIPDB Checker...")
         
         # Get connection data from firewall logs
         connection_data = self.parse_firewall_logs()
         source_ips = list(connection_data.keys())
-        print(f"Found {len(source_ips)} unique external IPs targeting LAN subnets")
+        logger.info(f"Found {len(source_ips)} unique external IPs targeting LAN subnets")
         
         # Check each IP against AbuseIPDB if needed
         checked = 0
@@ -483,11 +500,11 @@ class AbuseIPDBChecker:
         for ip in source_ips:
             # Stop if we've reached the daily limit
             if checked >= daily_limit:
-                print(f"Daily check limit of {daily_limit} reached. Stopping.")
+                logger.warning(f"Daily check limit of {daily_limit} reached. Stopping.")
                 break
                 
             if self.should_check_ip(ip):
-                print(f"Checking IP: {ip}")
+                logger.info(f"Checking IP: {ip}")
                 is_threat = self.check_ip_against_abuseipdb(ip)
                 checked += 1
                 if is_threat:
@@ -496,9 +513,9 @@ class AbuseIPDBChecker:
                 # Be nice to the API and avoid rate limiting
                 time.sleep(1)
             else:
-                print(f"Skipping IP {ip} (recently checked or limit reached)")
+                logger.info(f"Skipping IP {ip} (recently checked or limit reached)")
                 
-        print(f"Checked {checked} IPs, found {threats} potential threats")
+        logger.info(f"Checked {checked} IPs, found {threats} potential threats")
 
 def main():
     parser = argparse.ArgumentParser(description='OPNsense AbuseIPDB Integration')
