@@ -1,0 +1,122 @@
+<?xml version="1.0"?>
+<model>
+    <mount>//OPNsense/abuseipdbchecker</mount>
+    <description>AbuseIPDB Checker Plugin Configuration</description>
+    <version>1.0.0</version>
+    <items>
+        <general>
+            <enabled type="BooleanField">
+                <default>0</default>
+                <Required>Y</Required>
+                <description>Enable AbuseIPDB Checker</description>
+            </enabled>
+            <logFile type="TextField">
+                <default>/var/log/filter.log</default>
+                <Required>Y</Required>
+                <description>Firewall log file path</description>
+            </logFile>
+            <checkFrequency type="IntegerField">
+                <default>7</default>
+                <Required>Y</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>30</MaximumValue>
+                <description>Number of days before rechecking an IP</description>
+            </checkFrequency>
+            <abuseScoreThreshold type="IntegerField">
+                <default>80</default>
+                <Required>Y</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>100</MaximumValue>
+                <description>Minimum confidence score to consider an IP a threat</description>
+            </abuseScoreThreshold>
+            <dailyCheckLimit type="IntegerField">
+                <default>100</default>
+                <Required>Y</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>1000</MaximumValue>
+                <description>Maximum number of IPs to check per day</description>
+            </dailyCheckLimit>
+            <ignoreBlockedConnections type="BooleanField">
+                <default>1</default>
+                <Required>Y</Required>
+                <description>Only monitor allowed connections (ignore blocked traffic)</description>
+            </ignoreBlockedConnections>
+        </general>
+        <network>
+            <lanSubnets type="TextField">
+                <default>192.168.0.0/16,10.0.0.0/8,172.16.0.0/12</default>
+                <Required>Y</Required>
+                <description>LAN subnets to monitor (comma separated CIDR notation)</description>
+            </lanSubnets>
+            <ignoreProtocols type="TextField">
+                <default>icmp,igmp</default>
+                <Required>N</Required>
+                <description>Protocols to ignore (comma separated)</description>
+            </ignoreProtocols>
+        </network>
+        <api>
+            <key type="TextField">
+                <default></default>
+                <Required>Y</Required>
+                <description>AbuseIPDB API Key</description>
+            </key>
+            <endpoint type="TextField">
+                <default>https://api.abuseipdb.com/api/v2/check</default>
+                <Required>Y</Required>
+                <description>AbuseIPDB API Endpoint</description>
+            </endpoint>
+            <maxAge type="IntegerField">
+                <default>90</default>
+                <Required>Y</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>365</MaximumValue>
+                <description>Max age in days for IP reports</description>
+            </maxAge>
+        </api>
+        <email>
+            <enabled type="BooleanField">
+                <default>1</default>
+                <Required>Y</Required>
+                <description>Enable email notifications</description>
+            </enabled>
+            <smtpServer type="TextField">
+                <default>smtp.example.com</default>
+                <Required>Y</Required>
+                <description>SMTP Server</description>
+            </smtpServer>
+            <smtpPort type="IntegerField">
+                <default>587</default>
+                <Required>Y</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>65535</MaximumValue>
+                <description>SMTP Port</description>
+            </smtpPort>
+            <smtpUsername type="TextField">
+                <default></default>
+                <Required>N</Required>
+                <description>SMTP Username</description>
+            </smtpUsername>
+            <smtpPassword type="TextField">
+                <default></default>
+                <Required>N</Required>
+                <description>SMTP Password</description>
+                <mask>true</mask>
+            </smtpPassword>
+            <fromAddress type="TextField">
+                <default>firewall@yourdomain.com</default>
+                <Required>Y</Required>
+                <description>From Email Address</description>
+            </fromAddress>
+            <toAddress type="TextField">
+                <default>admin@yourdomain.com</default>
+                <Required>Y</Required>
+                <description>To Email Address</description>
+            </toAddress>
+            <useTLS type="BooleanField">
+                <default>1</default>
+                <Required>Y</Required>
+                <description>Use TLS for SMTP</description>
+            </useTLS>
+        </email>
+    </items>
+</model>

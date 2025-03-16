@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<plugin:root xmlns:plugin="http://www.opnsense.org/plugin/xmlschema">
+    <name>AbuseIPDBChecker</name>
+    <version>1.0.0</version>
+    <description>Check external IPs connecting to your LAN against AbuseIPDB to identify potential threats</description>
+    <maintainer>user@example.com</maintainer>
+    <license>BSD-2-Clause</license>
+    <origin>https://github.com/yourusername/opnsense-abuseipdb-plugin</origin>
+    <repository>https://github.com/yourusername/opnsense-abuseipdb-plugin</repository>
+    
+    <config>
+        <includes>
+            <include>+FULLPKGPATH+/+PKGNAME+.inc</include>
+        </includes>
+        <notifications>
+            <notification name="abuseipdbchecker-alert" handler="AbuseIPDBAlertHandler" />
+        </notifications>
+        <services>
+            <service restart="abuseipdbchecker" />
+        </services>
+        <menu>
+            <Firewall>
+                <AbuseIPDBChecker order="200" url="/ui/abuseipdbchecker" />
+            </Firewall>
+        </menu>
+    </config>
+    
+    <scripts>
+        <pre-install>
+            <!-- Create required directories -->
+            <![CDATA[
+                mkdir -p /usr/local/opnsense/scripts/AbuseIPDBChecker
+                mkdir -p /var/db/abuseipdb_checker
+            ]]>
+        </pre-install>
+        <post-install>
+            <!-- Install Python script -->
+            <![CDATA[
+                cp +FULLPKGPATH+/scripts/checker.py /usr/local/opnsense/scripts/AbuseIPDBChecker/
+                chmod +x /usr/local/opnsense/scripts/AbuseIPDBChecker/checker.py
+                
+                # Install RC script
+                cp +FULLPKGPATH+/scripts/rc.d/abuseipdbchecker /usr/local/etc/rc.d/
+                chmod +x /usr/local/etc/rc.d/abuseipdbchecker
+                
+                # Install Python dependencies
+                pkg install -y py38-requests py38-sqlite3
+            ]]>
+        </post-install>
+        <post-deinstall>
+            <!-- Clean up files -->
+            <![CDATA[
+                rm -rf /usr/local/opnsense/scripts/AbuseIPDBChecker
+                rm -f /usr/local/etc/rc.d/abuseipdbchecker
+                rm -f /usr/local/etc/abuseipdb_checker.conf
+                rm -f /usr/local/etc/cron.d/abuseipdbchecker
+            ]]>
+        </post-deinstall>
+    </scripts>
+    
+    <requirements>
+        <package>py38-requests</package>
+        <package>py38-sqlite3</package>
+    </requirements>
+</plugin:root>
