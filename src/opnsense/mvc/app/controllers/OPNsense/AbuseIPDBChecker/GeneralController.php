@@ -4,7 +4,7 @@
  * AbuseIPDB Checker UI Controller
  */
 
-namespace OPNsense\AbuseIPDBChecker;
+namespace OPNsense\AbuseIPDBChecker\Controller;
 
 use OPNsense\Base\UIController;
 use OPNsense\Core\Config;
