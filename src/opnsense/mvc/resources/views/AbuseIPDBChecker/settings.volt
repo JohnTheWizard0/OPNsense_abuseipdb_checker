@@ -59,6 +59,16 @@
                                    </div>
                                </td>
                            </tr>
+                           <!-- Add this after the API Key section -->
+                            <tr>
+                                <td><a id="help_for_api.endpoint" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('API Endpoint') }}</td>
+                                <td>
+                                    <input name="api.endpoint" type="text" value="{{ api.endpoint|default('https://www.abuseipdb.com/check') }}" class="form-control"/>
+                                    <div class="hidden" data-for="help_for_api.endpoint">
+                                        <small>{{ lang._('AbuseIPDB API endpoint URL. Should not need to be changed unless the API changes.') }}</small>
+                                    </div>
+                                </td>
+                            </tr>
                            <tr>
                                <td><a id="help_for_api.maxAge" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Max Age (days)') }}</td>
                                <td>

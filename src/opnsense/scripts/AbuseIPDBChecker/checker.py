@@ -60,7 +60,7 @@ class AbuseIPDBChecker:
         
         self.config['AbuseIPDB'] = {
             'APIKey': 'YOUR_API_KEY_HERE',
-            'APIEndpoint': 'https://api.abuseipdb.com/api/v2/check',
+            'APIEndpoint': 'https://www.abuseipdb.com/check',
             'MaxAge': '90'  # days to look back in AbuseIPDB reports
         }
         
@@ -82,7 +82,7 @@ class AbuseIPDBChecker:
         print(f"Created default configuration file at {config_path}")
         print("Please edit this file to set your API key and other settings")
         sys.exit(1)
-        
+
     def init_database(self):
         """Initialize the SQLite database to store checked IPs and daily stats"""
         conn = sqlite3.connect(DB_FILE)
@@ -301,21 +301,18 @@ class AbuseIPDBChecker:
     def check_ip_against_abuseipdb(self, ip):
         """Check an IP against the AbuseIPDB API"""
         api_key = self.config.get('AbuseIPDB', 'APIKey')
-        api_endpoint = self.config.get('AbuseIPDB', 'APIEndpoint')
         max_age = self.config.get('AbuseIPDB', 'MaxAge')
         
-        headers = {
-            'Accept': 'application/json',
-            'Key': api_key
-        }
+        # Use the proper API endpoint format
+        api_endpoint = f"https://www.abuseipdb.com/check/{ip}/json"
         
         params = {
-            'ipAddress': ip,
-            'maxAgeInDays': max_age
+            'key': api_key,
+            'days': max_age
         }
         
         try:
-            response = requests.get(api_endpoint, headers=headers, params=params)
+            response = requests.get(api_endpoint, params=params)
             response.raise_for_status()
             
             # Update daily API check count
@@ -323,6 +320,7 @@ class AbuseIPDBChecker:
             
             data = response.json()
             
+            # Handle the response based on the API structure
             if 'data' in data:
                 score = data['data'].get('abuseConfidenceScore', 0)
                 threshold = int(self.config.get('General', 'AbuseScoreThreshold'))

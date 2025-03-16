@@ -61,9 +61,9 @@
                 <description>AbuseIPDB API Key</description>
             </key>
             <endpoint type="TextField">
-                <default>https://api.abuseipdb.com/api/v2/check</default>
+                <default>https://www.abuseipdb.com/check</default>
                 <Required>Y</Required>
-                <description>AbuseIPDB API Endpoint</description>
+                <description>AbuseIPDB API Endpoint base URL</description>
             </endpoint>
             <maxAge type="IntegerField">
                 <default>90</default>

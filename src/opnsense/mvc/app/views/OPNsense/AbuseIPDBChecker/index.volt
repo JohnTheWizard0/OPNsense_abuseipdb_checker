@@ -105,6 +105,16 @@
                                 </div>
                             </td>
                         </tr>
+                        <!-- Inside the API Settings table, add this after the API Key row -->
+                        <tr>
+                            <td><a id="help_for_abuseipdbchecker.api.endpoint" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('API Endpoint') }}</td>
+                            <td>
+                                <input id="abuseipdbchecker.api.endpoint" type="text" class="form-control"/>
+                                <div class="hidden" data-for="help_for_abuseipdbchecker.api.endpoint">
+                                    <small>{{ lang._('AbuseIPDB API endpoint URL. Default format is https://www.abuseipdb.com/check/[IP]/json') }}</small>
+                                </div>
+                            </td>
+                        </tr>
                         <tr>
                             <td><a id="help_for_abuseipdbchecker.api.maxAge" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Max Age (days)') }}</td>
                             <td>
