@@ -4,13 +4,13 @@
  * AbuseIPDB Checker UI Controller
  */
 
-namespace OPNsense\AbuseIPDBChecker\Controller;
+namespace OPNsense\AbuseIPDBChecker;
 
-use OPNsense\Base\UIController;
+use OPNsense\Base\ControllerBase;
 use OPNsense\Core\Config;
 use OPNsense\AbuseIPDBChecker\AbuseIPDBChecker;
 
-class GeneralController extends UIController
+class GeneralController extends ControllerBase
 {
     /**
      * Main index page
