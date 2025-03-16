@@ -10,7 +10,7 @@ use OPNsense\Base\UIController;
 use OPNsense\Core\Config;
 use OPNsense\AbuseIPDBChecker\AbuseIPDBChecker;
 
-class UIController extends UIController
+class GeneralController extends GeneralController
 {
     /**
      * Main index page
