@@ -15,9 +15,8 @@ class SettingsController extends ApiControllerBase
     public function getAction()
     {
         $model = new AbuseIPDBChecker();
-        return [
-            'abuseipdbchecker' => $model->getNodes()
-        ];
+        $result = array("abuseipdbchecker" => $model->getNodes());
+        return $result;
     }
 
     /**
@@ -26,24 +25,22 @@ class SettingsController extends ApiControllerBase
      */
     public function setAction()
     {
-        $model = new AbuseIPDBChecker();
-        $model->setNodes($this->request->getPost('abuseipdbchecker'));
-        $validationMessages = $model->performValidation();
+        $result = array("result" => "failed");
+        if ($this->request->isPost()) {
+            $model = new AbuseIPDBChecker();
+            $model->setNodes($this->request->getPost("abuseipdbchecker"));
+            $validationMessages = $model->performValidation();
 
-        if (count($validationMessages) > 0) {
-            return [
-                'result' => 'failed',
-                'validations' => $validationMessages
-            ];
+            if (count($validationMessages) > 0) {
+                $result["validations"] = $validationMessages;
+            } else {
+                // Save model after validation
+                $model->serializeToConfig();
+                Config::getInstance()->save();
+                $result["result"] = "saved";
+            }
         }
-
-        // Save model after validation
-        $model->serializeToConfig();
-        Config::getInstance()->save();
-
-        return [
-            'result' => 'saved'
-        ];
+        return $result;
     }
 
     /**
@@ -52,12 +49,13 @@ class SettingsController extends ApiControllerBase
      */
     public function runAction()
     {
-        $backend = new Backend();
-        $response = $backend->configdRun('abuseipdbchecker.run');
-
-        return [
-            'result' => $response
-        ];
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $response = $backend->configdRun('abuseipdbchecker run');
+            return array("result" => $response);
+        } else {
+            return array("result" => "");
+        }
     }
 
     /**
@@ -67,12 +65,8 @@ class SettingsController extends ApiControllerBase
     public function statsAction()
     {
         $backend = new Backend();
-        $response = json_decode($backend->configdRun('abuseipdbchecker.stats'), true);
-
-        return [
-            'result' => 'ok',
-            'stats' => $response
-        ];
+        $response = json_decode($backend->configdRun('abuseipdbchecker stats'), true);
+        return array("result" => "ok", "stats" => $response);
     }
 
     /**
@@ -82,12 +76,8 @@ class SettingsController extends ApiControllerBase
     public function threatsAction()
     {
         $backend = new Backend();
-        $response = json_decode($backend->configdRun('abuseipdbchecker.threats'), true);
-
-        return [
-            'result' => 'ok',
-            'threats' => $response
-        ];
+        $response = json_decode($backend->configdRun('abuseipdbchecker threats'), true);
+        return array("result" => "ok", "threats" => $response);
     }
 
     /**
@@ -97,10 +87,9 @@ class SettingsController extends ApiControllerBase
     public function logsAction()
     {
         $backend = new Backend();
-        // Notice the correct command name - no prefix needed
-        $response = $backend->configdRun('logs', 'abuseipdbchecker');
+        $response = $backend->configdRun('abuseipdbchecker logs');
         
-        $logEntries = [];
+        $logEntries = array();
         if (!empty($response)) {
             // Split log content into lines
             $lines = explode("\n", trim($response));
@@ -118,10 +107,6 @@ class SettingsController extends ApiControllerBase
             }
         }
         
-        return [
-            'result' => 'ok',
-            'logs' => $logEntries
-        ];
+        return array("result" => "ok", "logs" => $logEntries);
     }
-
 }
