@@ -56,7 +56,7 @@
         </network>
         <api>
             <key type="TextField">
-                <default></default>
+                <default>YOUR_API_KEY</default>
                 <Required>Y</Required>
                 <description>AbuseIPDB API Key</description>
             </key>

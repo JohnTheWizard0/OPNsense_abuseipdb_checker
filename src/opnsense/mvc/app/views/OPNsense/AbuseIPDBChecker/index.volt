@@ -313,7 +313,7 @@
             // Show loading indicator
             var runBtn = $(this);
             runBtn.prop('disabled', true);
-            runBtn.html('<i class="fa fa-spinner fa-spin"></i> ' + '{{ lang._('Running...') }}');
+            runBtn.html('<i class="fa fa-spinner fa-spin"></i> ' + '{{ lang._("Running...") }}');
             
             ajaxCall(
                 '/api/abuseipdbchecker/settings/run',
@@ -325,7 +325,7 @@
                     
                     // Reset button
                     runBtn.prop('disabled', false);
-                    runBtn.html('{{ lang._('Run Now') }}');
+                    runBtn.html('{{ lang._("Run Now") }}');
                 }
             );
         });
@@ -357,7 +357,7 @@
                     table.empty();
                     
                     if (threats.length === 0) {
-                        table.append('<tr><td colspan="5">{{ lang._('No threats detected') }}</td></tr>');
+                        table.append('<tr><td colspan="5">{{ lang._("No threats detected") }}</td></tr>');
                     } else {
                         threats.forEach(function(threat) {
                             var row = '<tr>' +

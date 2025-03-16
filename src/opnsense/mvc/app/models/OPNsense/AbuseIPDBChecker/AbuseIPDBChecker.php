@@ -11,6 +11,6 @@ class AbuseIPDBChecker extends BaseModel
      */
     public function getConfigPath()
     {
-        return array('abuseipdbchecker');
+        return array('OPNsense', 'abuseipdbchecker');
     }
 }
