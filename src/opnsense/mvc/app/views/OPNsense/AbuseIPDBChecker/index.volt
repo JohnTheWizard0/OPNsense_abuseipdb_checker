@@ -1,7 +1,7 @@
 <!-- AbuseIPDB Checker Settings -->
 <div id="abuseipdbchecker-settings" class="tab-pane" data-toggle="form">
     <!-- Add a hidden form that OPNsense can bind to -->
-    <form id="frm_GeneralSettings" class="hidden">
+    <form id="frm_GeneralSettings">
         <div class="content-box">
             <div class="content-box-main">
                 <div class="table-responsive">
