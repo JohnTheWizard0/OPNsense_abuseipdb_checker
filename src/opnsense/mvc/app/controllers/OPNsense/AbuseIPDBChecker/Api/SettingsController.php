@@ -53,7 +53,7 @@ class SettingsController extends ApiControllerBase
     public function runAction()
     {
         $backend = new Backend();
-        $response = $backend->configdRun('abuseipdbchecker run');
+        $response = $backend->configdRun('abuseipdbchecker.run');
 
         return [
             'result' => $response
@@ -67,7 +67,7 @@ class SettingsController extends ApiControllerBase
     public function statsAction()
     {
         $backend = new Backend();
-        $response = json_decode($backend->configdRun('abuseipdbchecker stats'), true);
+        $response = json_decode($backend->configdRun('abuseipdbchecker.stats'), true);
 
         return [
             'result' => 'ok',
@@ -82,7 +82,7 @@ class SettingsController extends ApiControllerBase
     public function threatsAction()
     {
         $backend = new Backend();
-        $response = json_decode($backend->configdRun('abuseipdbchecker threats'), true);
+        $response = json_decode($backend->configdRun('abuseipdbchecker.threats'), true);
 
         return [
             'result' => 'ok',

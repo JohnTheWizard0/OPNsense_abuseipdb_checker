@@ -17,20 +17,20 @@ class ServiceController extends ApiControllerBase
         if ($this->request->isPost()) {
             // Generate config file
             $backend = new Backend();
-            $response = $backend->configdRun('abuseipdbchecker generate-config');
+            $response = $backend->configdRun('abuseipdbchecker.generate-config');
             
             // Restart service if model is enabled
             $model = new AbuseIPDBChecker();
             if ((string)$model->general->enabled == '1') {
-                $response = $backend->configdRun('abuseipdbchecker restart');
+                $response = $backend->configdRun('abuseipdbchecker.run');
             } else {
-                $response = $backend->configdRun('abuseipdbchecker stop');
+                $response = $backend->configdRun('service stop abuseipdbchecker');
             }
             
-            return array('status' => 'ok', 'message' => $response);
+            return ['status' => 'ok', 'message' => $response];
         }
         
-        return array('status' => 'failed', 'message' => 'Only POST requests allowed');
+        return ['status' => 'failed', 'message' => 'Only POST requests allowed'];
     }
     
     /**
@@ -41,10 +41,10 @@ class ServiceController extends ApiControllerBase
     {
         $backend = new Backend();
         $model = new AbuseIPDBChecker();
-        $response = array();
+        $response = [];
         
         if ((string)$model->general->enabled == '1') {
-            $response['status'] = trim($backend->configdRun('abuseipdbchecker status'));
+            $response['status'] = trim($backend->configdRun('service status abuseipdbchecker'));
             $response['enabled'] = true;
         } else {
             $response['status'] = 'disabled';
