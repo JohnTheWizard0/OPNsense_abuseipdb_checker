@@ -1,0 +1,110 @@
+<form>
+    <field>
+        <id>abuseipdbchecker.general.enabled</id>
+        <label>Enable Plugin</label>
+        <type>checkbox</type>
+        <help>Enable or disable the AbuseIPDB Checker plugin.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.checkFrequency</id>
+        <label>Check Frequency (days)</label>
+        <type>text</type>
+        <help>Number of days to wait before rechecking an IP address.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.abuseScoreThreshold</id>
+        <label>Abuse Score Threshold</label>
+        <type>text</type>
+        <help>Minimum confidence score (1-100) to consider an IP a potential threat.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.dailyCheckLimit</id>
+        <label>Daily Check Limit</label>
+        <type>text</type>
+        <help>Maximum number of IPs to check per day.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.ignoreBlockedConnections</id>
+        <label>Ignore Blocked Connections</label>
+        <type>checkbox</type>
+        <help>When enabled, only monitor allowed connections and ignore blocked traffic.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.network.lanSubnets</id>
+        <label>LAN Subnets</label>
+        <type>text</type>
+        <help>Comma-separated list of LAN subnets to monitor in CIDR notation (e.g., 192.168.0.0/16,10.0.0.0/8).</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.network.ignoreProtocols</id>
+        <label>Ignore Protocols</label>
+        <type>text</type>
+        <help>Comma-separated list of protocols to ignore (e.g., icmp,igmp).</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.api.key</id>
+        <label>API Key</label>
+        <type>text</type>
+        <help>Your AbuseIPDB API key. Sign up at https://www.abuseipdb.com/ to get one.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.api.endpoint</id>
+        <label>API Endpoint</label>
+        <type>text</type>
+        <help>AbuseIPDB API endpoint URL.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.api.maxAge</id>
+        <label>Max Age (days)</label>
+        <type>text</type>
+        <help>Maximum age in days for IP reports to consider.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.email.enabled</id>
+        <label>Enable Email Notifications</label>
+        <type>checkbox</type>
+        <help>Enable or disable email notifications for potential threats.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.email.smtpServer</id>
+        <label>SMTP Server</label>
+        <type>text</type>
+        <help>SMTP server address for sending email notifications.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.email.smtpPort</id>
+        <label>SMTP Port</label>
+        <type>text</type>
+        <help>SMTP server port (usually 25, 465, or 587).</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.email.smtpUsername</id>
+        <label>SMTP Username</label>
+        <type>text</type>
+        <help>Username for SMTP authentication (optional).</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.email.smtpPassword</id>
+        <label>SMTP Password</label>
+        <type>password</type>
+        <help>Password for SMTP authentication (optional).</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.email.fromAddress</id>
+        <label>From Email Address</label>
+        <type>text</type>
+        <help>Sender email address for notifications.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.email.toAddress</id>
+        <label>To Email Address</label>
+        <type>text</type>
+        <help>Recipient email address for notifications.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.email.useTLS</id>
+        <label>Use TLS</label>
+        <type>checkbox</type>
+        <help>Enable TLS encryption for SMTP communication.</help>
+    </field>
+</form>

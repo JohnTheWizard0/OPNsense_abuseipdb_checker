@@ -17,13 +17,14 @@ function abuseipdbchecker_services()
     $services = array();
     
     if (isset($config['OPNsense']['abuseipdbchecker']['general']['enabled']) &&
-        $config['OPNsense']['abuseipdbchecker']['general']['enabled'] == 1) {
+        $config['OPNsense']['abuseipdbchecker']['general']['enabled'] == '1') {
         $services[] = array(
             'description' => gettext('AbuseIPDB Checker'),
             'configd' => array(
                 'restart' => array('abuseipdbchecker restart'),
                 'start' => array('abuseipdbchecker start'),
                 'stop' => array('abuseipdbchecker stop'),
+                'status' => array('abuseipdbchecker status'),
             ),
             'name' => 'abuseipdbchecker',
             'pidfile' => '/var/run/abuseipdbchecker.pid'
@@ -61,7 +62,7 @@ function abuseipdbchecker_cron()
     $jobs = array();
     
     if (isset($config['OPNsense']['abuseipdbchecker']['general']['enabled']) &&
-        $config['OPNsense']['abuseipdbchecker']['general']['enabled'] == 1) {
+        $config['OPNsense']['abuseipdbchecker']['general']['enabled'] == '1') {
         $jobs[] = array(
             'description' => gettext('AbuseIPDB Checker'),
             'command' => '/usr/local/opnsense/scripts/AbuseIPDBChecker/checker.py',
