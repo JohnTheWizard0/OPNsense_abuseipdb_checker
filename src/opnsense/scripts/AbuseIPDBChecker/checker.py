@@ -59,7 +59,7 @@ class AbuseIPDBChecker:
         if not os.path.exists(config_path):
             self.create_default_config(config_path)
         self.config.read(config_path)
-        
+
         # Initialize database
         self.init_database()
         
@@ -101,10 +101,12 @@ class AbuseIPDBChecker:
         
         logger.info(f"Created default configuration file at {config_path}")
         logger.info("Please edit this file to set your API key and other settings")
-        sys.exit(1)
 
     def init_database(self):
         """Initialize the SQLite database to store checked IPs and daily stats"""
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
+        
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
@@ -520,9 +522,15 @@ class AbuseIPDBChecker:
 def main():
     parser = argparse.ArgumentParser(description='OPNsense AbuseIPDB Integration')
     parser.add_argument('--config', help='Path to configuration file', default=CONFIG_FILE)
+    parser.add_argument('--create-config', action='store_true', help='Create default configuration file only')
     args = parser.parse_args()
     
     checker = AbuseIPDBChecker(args.config)
+    
+    if args.create_config:
+        # Just create the config file and exit successfully
+        return
+        
     checker.run()
 
 if __name__ == "__main__":

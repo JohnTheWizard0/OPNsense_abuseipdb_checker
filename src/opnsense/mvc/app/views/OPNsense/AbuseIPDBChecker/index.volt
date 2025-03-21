@@ -16,7 +16,7 @@
                             <tr>
                                 <td><a id="help_for_general.enabled" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Enable Plugin') }}</td>
                                 <td>
-                                    <input id="general.enabled" type="checkbox" class="form-control"/>
+                                    <input id="general.enabled" name="general.enabled" type="checkbox" class="form-control"/>
                                     <div class="hidden" data-for="help_for_general.enabled">
                                         <small>{{ lang._('Enable or disable the AbuseIPDB Checker plugin.') }}</small>
                                     </div>
@@ -25,7 +25,7 @@
                             <tr>
                                 <td><a id="help_for_general.checkFrequency" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Check Frequency (days)') }}</td>
                                 <td>
-                                    <input id="general.checkFrequency" type="number" min="1" max="30" class="form-control"/>
+                                    <input id="general.checkFrequency" name="general.checkFrequency" type="number" min="1" max="30" class="form-control"/>
                                     <div class="hidden" data-for="help_for_general.checkFrequency">
                                         <small>{{ lang._('Number of days to wait before rechecking an IP address.') }}</small>
                                     </div>
@@ -34,7 +34,7 @@
                             <tr>
                                 <td><a id="help_for_general.abuseScoreThreshold" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Abuse Score Threshold') }}</td>
                                 <td>
-                                    <input id="general.abuseScoreThreshold" type="number" min="1" max="100" class="form-control"/>
+                                    <input id="general.abuseScoreThreshold" name="general.abuseScoreThreshold" type="number" min="1" max="100" class="form-control"/>
                                     <div class="hidden" data-for="help_for_general.abuseScoreThreshold">
                                         <small>{{ lang._('Minimum confidence score (1-100) to consider an IP a potential threat.') }}</small>
                                     </div>
@@ -43,7 +43,7 @@
                             <tr>
                                 <td><a id="help_for_general.dailyCheckLimit" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Daily Check Limit') }}</td>
                                 <td>
-                                    <input id="general.dailyCheckLimit" type="number" min="1" max="1000" class="form-control"/>
+                                    <input id="general.dailyCheckLimit" name="general.dailyCheckLimit" type="number" min="1" max="1000" class="form-control"/>
                                     <div class="hidden" data-for="help_for_general.dailyCheckLimit">
                                         <small>{{ lang._('Maximum number of IPs to check per day. Helps manage API usage.') }}</small>
                                     </div>
@@ -52,7 +52,7 @@
                             <tr>
                                 <td><a id="help_for_general.ignoreBlockedConnections" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Ignore Blocked Connections') }}</td>
                                 <td>
-                                    <input id="general.ignoreBlockedConnections" type="checkbox" class="form-control"/>
+                                    <input id="general.ignoreBlockedConnections" name="general.ignoreBlockedConnections" type="checkbox" class="form-control"/>
                                     <div class="hidden" data-for="help_for_general.ignoreBlockedConnections">
                                         <small>{{ lang._('When enabled, only monitor allowed connections and ignore blocked traffic.') }}</small>
                                     </div>
@@ -72,7 +72,7 @@
                             <tr>
                                 <td><a id="help_for_network.lanSubnets" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('LAN Subnets') }}</td>
                                 <td>
-                                    <input id="network.lanSubnets" type="text" class="form-control"/>
+                                    <input id="network.lanSubnets" name="network.lanSubnets" type="text" class="form-control"/>
                                     <div class="hidden" data-for="help_for_network.lanSubnets">
                                         <small>{{ lang._('Comma-separated list of LAN subnets to monitor in CIDR notation (e.g., 192.168.0.0/16,10.0.0.0/8).') }}</small>
                                     </div>
@@ -81,7 +81,7 @@
                             <tr>
                                 <td><a id="help_for_network.ignoreProtocols" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Ignore Protocols') }}</td>
                                 <td>
-                                    <input id="network.ignoreProtocols" type="text" class="form-control"/>
+                                    <input id="network.ignoreProtocols" name="network.ignoreProtocols" type="text" class="form-control"/>
                                     <div class="hidden" data-for="help_for_network.ignoreProtocols">
                                         <small>{{ lang._('Comma-separated list of protocols to ignore (e.g., icmp,igmp).') }}</small>
                                     </div>
@@ -101,7 +101,7 @@
                             <tr>
                                 <td><a id="help_for_api.key" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('API Key') }}</td>
                                 <td>
-                                    <input id="api.key" type="text" class="form-control"/>
+                                    <input id="api.key" name="api.key" type="text" class="form-control"/>
                                     <div class="hidden" data-for="help_for_api.key">
                                         <small>{{ lang._('Your AbuseIPDB API key. Sign up at https://www.abuseipdb.com/ to get one.') }}</small>
                                     </div>
@@ -111,7 +111,7 @@
                             <tr>
                                 <td><a id="help_for_api.endpoint" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('API Endpoint') }}</td>
                                 <td>
-                                    <input id="api.endpoint" type="text" class="form-control"/>
+                                    <input id="api.endpoint" name="api.endpoint" type="text" class="form-control"/>
                                     <div class="hidden" data-for="help_for_api.endpoint">
                                         <small>{{ lang._('AbuseIPDB API endpoint URL. Default format is https://www.abuseipdb.com/check/[IP]/json') }}</small>
                                     </div>
@@ -120,7 +120,7 @@
                             <tr>
                                 <td><a id="help_for_api.maxAge" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Max Age (days)') }}</td>
                                 <td>
-                                    <input id="api.maxAge" type="number" min="1" max="365" class="form-control"/>
+                                    <input id="api.maxAge" name="api.maxAge" type="number" min="1" max="365" class="form-control"/>
                                     <div class="hidden" data-for="help_for_api.maxAge">
                                         <small>{{ lang._('Maximum age in days for IP reports to consider.') }}</small>
                                     </div>
@@ -140,7 +140,7 @@
                             <tr>
                                 <td><a id="help_for_email.enabled" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Enable Email Notifications') }}</td>
                                 <td>
-                                    <input id="email.enabled" type="checkbox" class="form-control"/>
+                                    <input id="email.enabled" name="email.enabled" type="checkbox" class="form-control"/>
                                     <div class="hidden" data-for="help_for_email.enabled">
                                         <small>{{ lang._('Enable or disable email notifications for potential threats.') }}</small>
                                     </div>
@@ -149,7 +149,7 @@
                             <tr>
                                 <td><a id="help_for_email.smtpServer" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('SMTP Server') }}</td>
                                 <td>
-                                    <input id="email.smtpServer" type="text" class="form-control"/>
+                                    <input id="email.smtpServer" name="email.smtpServer" type="text" class="form-control"/>
                                     <div class="hidden" data-for="help_for_email.smtpServer">
                                         <small>{{ lang._('SMTP server address for sending email notifications.') }}</small>
                                     </div>
@@ -158,7 +158,7 @@
                             <tr>
                                 <td><a id="help_for_email.smtpPort" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('SMTP Port') }}</td>
                                 <td>
-                                    <input id="email.smtpPort" type="number" min="1" max="65535" class="form-control"/>
+                                    <input id="email.smtpPort" name="email.smtpPort" type="number" min="1" max="65535" class="form-control"/>
                                     <div class="hidden" data-for="help_for_email.smtpPort">
                                         <small>{{ lang._('SMTP server port (usually 25, 465, or 587).') }}</small>
                                     </div>
@@ -167,7 +167,7 @@
                             <tr>
                                 <td><a id="help_for_email.smtpUsername" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('SMTP Username') }}</td>
                                 <td>
-                                    <input id="email.smtpUsername" type="text" class="form-control"/>
+                                    <input id="email.smtpUsername" name="email.smtpUsername" type="text" class="form-control"/>
                                     <div class="hidden" data-for="help_for_email.smtpUsername">
                                         <small>{{ lang._('Username for SMTP authentication (optional).') }}</small>
                                     </div>
@@ -176,7 +176,7 @@
                             <tr>
                                 <td><a id="help_for_email.smtpPassword" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('SMTP Password') }}</td>
                                 <td>
-                                    <input id="email.smtpPassword" type="password" class="form-control"/>
+                                    <input id="email.smtpPassword" name="email.smtpPassword" type="password" class="form-control"/>
                                     <div class="hidden" data-for="help_for_email.smtpPassword">
                                         <small>{{ lang._('Password for SMTP authentication (optional).') }}</small>
                                     </div>
@@ -185,7 +185,7 @@
                             <tr>
                                 <td><a id="help_for_email.fromAddress" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('From Email Address') }}</td>
                                 <td>
-                                    <input id="email.fromAddress" type="text" class="form-control"/>
+                                    <input id="email.fromAddress" name="email.fromAddress" type="text" class="form-control"/>
                                     <div class="hidden" data-for="help_for_email.fromAddress">
                                         <small>{{ lang._('Sender email address for notifications.') }}</small>
                                     </div>
@@ -194,7 +194,7 @@
                             <tr>
                                 <td><a id="help_for_email.toAddress" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('To Email Address') }}</td>
                                 <td>
-                                    <input id="email.toAddress" type="text" class="form-control"/>
+                                    <input id="email.toAddress" name="email.toAddress" type="text" class="form-control"/>
                                     <div class="hidden" data-for="help_for_email.toAddress">
                                         <small>{{ lang._('Recipient email address for notifications.') }}</small>
                                     </div>
@@ -203,7 +203,7 @@
                             <tr>
                                 <td><a id="help_for_email.useTLS" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> {{ lang._('Use TLS') }}</td>
                                 <td>
-                                    <input id="email.useTLS" type="checkbox" class="form-control"/>
+                                    <input id="email.useTLS" name="email.useTLS" type="checkbox" class="form-control"/>
                                     <div class="hidden" data-for="help_for_email.useTLS">
                                         <small>{{ lang._('Enable TLS encryption for SMTP communication.') }}</small>
                                     </div>
@@ -366,14 +366,17 @@
             );
         });
 
-        // Update form data from API
+        // Update form data from API - THIS FUNCTION IS MODIFIED
         function updateFormData() {
             ajaxCall(
                 "/api/abuseipdbchecker/settings/get",
                 {},
                 function(data, status) {
+                    // Extract the abuseipdbchecker part of the response
+                    var formData = data.abuseipdbchecker;
+                    
                     // Use OPNsense's built-in function to map API data to form
-                    mapDataToFormUI({'frm_GeneralSettings': data}).done(function() {
+                    mapDataToFormUI({'frm_GeneralSettings': formData}).done(function() {
                         // Form is now populated, enable events/plugins
                         $('.selectpicker').selectpicker('refresh');
                     });

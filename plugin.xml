@@ -30,7 +30,7 @@
             <!-- Create required directories -->
             <![CDATA[
                 mkdir -p /usr/local/opnsense/scripts/AbuseIPDBChecker
-                mkdir -p /var/db/abuseipdb_checker
+                mkdir -p /var/db
             ]]>
         </pre-install>
         <post-install>
@@ -40,7 +40,7 @@
                 chmod +x /usr/local/opnsense/scripts/AbuseIPDBChecker/checker.py
                 
                 # Install RC script
-                cp +FULLPKGPATH+/scripts/rc.d/abuseipdbchecker /usr/local/etc/rc.d/
+                cp +FULLPKGPATH+/src/rc.d/abuseipdbchecker /usr/local/etc/rc.d/
                 chmod +x /usr/local/etc/rc.d/abuseipdbchecker
                 
                 # Install Python dependencies
