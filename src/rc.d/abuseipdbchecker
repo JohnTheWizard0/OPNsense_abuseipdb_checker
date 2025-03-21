@@ -1,11 +1,9 @@
+# In src/rc.d/abuseipdbchecker
 #!/bin/sh
 #
 # PROVIDE: abuseipdbchecker
 # REQUIRE: NETWORKING syslogd
 # KEYWORD: shutdown
-#
-# Add the following lines to /etc/rc.conf to enable abuseipdbchecker:
-# abuseipdbchecker_enable="YES"
 #
 
 . /etc/rc.subr
@@ -16,20 +14,19 @@ rcvar="abuseipdbchecker_enable"
 load_rc_config $name
 
 : ${abuseipdbchecker_enable="NO"}
-: ${abuseipdbchecker_interval="3600"}
-
-pidfile="/var/run/${name}.pid"
-command="/usr/sbin/daemon"
-command_args="-f -P ${pidfile} -t ${name} /usr/local/opnsense/scripts/AbuseIPDBChecker/checker.py"
 abuseipdbchecker_cron="/usr/local/etc/cron.d/abuseipdbchecker"
+pidfile="/var/run/${name}.pid"
 
+start_cmd="${name}_start"
+stop_cmd="${name}_stop"
+status_cmd="${name}_status"
 
 abuseipdbchecker_prestart()
 {
-    # Generate config file if it doesn't exist
+    # Ensure config exists using OPNsense template system
     if [ ! -f /usr/local/etc/abuseipdb_checker.conf ]; then
         echo "Generating initial configuration file"
-        /usr/local/opnsense/scripts/AbuseIPDBChecker/configcommands.php generate-config
+        /usr/local/sbin/configctl template reload OPNsense/AbuseIPDBChecker
     fi
     
     # Ensure the script exists and is executable
@@ -49,40 +46,30 @@ abuseipdbchecker_prestart()
     return 0
 }
 
-abuseipdbchecker_poststop()
-{
-    # Remove cron job
-    rm -f ${abuseipdbchecker_cron}
-    return 0
-}
-
-start_cmd="${name}_start"
-stop_cmd="${name}_stop"
-
 abuseipdbchecker_start()
-{
-    abuseipdbchecker_prestart || return 1
-    
-    # Run once initially
+{    
+    # Run initial check
     /usr/local/opnsense/scripts/AbuseIPDBChecker/checker.py >> /var/log/abuseipdb_checker.log 2>&1
     
-    # Create an empty PID file so the service appears running
+    # Create PID file
     echo "$$" > ${pidfile}
-    
-    echo "Started ${name} service (running on cron schedule)"
-    return 0
+    echo "Started ${name} service (cron scheduled)"
 }
 
 abuseipdbchecker_stop()
 {
-    if [ -f "${pidfile}" ]; then
-        pid=$(cat "${pidfile}")
-        kill -TERM "${pid}" 2>/dev/null && echo "Stopped ${name} process"
-        rm -f "${pidfile}"
-    fi
-    
-    abuseipdbchecker_poststop
+    rm -f ${abuseipdbchecker_cron}
+    rm -f ${pidfile}
     echo "Stopped ${name} service"
+}
+
+abuseipdbchecker_status()
+{
+    if [ -f "${pidfile}" ]; then
+        echo "${name} is running"
+    else
+        echo "${name} is not running"
+    fi
 }
 
 run_rc_command "$1"

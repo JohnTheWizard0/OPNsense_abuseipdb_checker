@@ -301,88 +301,41 @@
 <script>
     $(document).ready(function() {
         // Load initial data
-        updateFormData();
-        updateStats();
-        updateThreats();
-
-        // Initialize form help tooltips
-        $('.showhelp').click(function(event) {
-            $(this).parent().find('small').toggleClass('hidden');
-            event.preventDefault();
+        mapDataToFormUI({'frm_GeneralSettings':"/api/abuseipdbchecker/settings/get"}).done(function(data){
+            // place actions to run after load, for example update form styles.
+            updateStats();
+            updateThreats();
         });
 
-        // Save settings button
-        $("#saveAct").click(function() {
-            saveFormToEndpoint(
-                url = "/api/abuseipdbchecker/settings/set",
-                formid = 'frm_GeneralSettings',
-                callback_ok = function() {
-                    // Show success message
-                    BootstrapDialog.show({
-                        type: BootstrapDialog.TYPE_SUCCESS,
-                        title: '{{ lang._("Settings saved") }}',
-                        message: '{{ lang._("Settings have been saved successfully.") }}',
-                        buttons: [{
-                            label: '{{ lang._("Close") }}',
-                            action: function(dialogRef) {
-                                dialogRef.close();
-                            }
-                        }]
-                    });
-                    
-                    // Reconfigure service
-                    ajaxCall(
-                        "/api/abuseipdbchecker/service/reconfigure",
-                        {},
-                        function(data, status) {
-                            // Update stats after save
-                            updateStats();
-                            updateThreats();
-                        }
-                    );
-                }
-            );
+        // link save button to API set action
+        $("#saveAct").click(function(){
+            saveFormToEndpoint("/api/abuseipdbchecker/settings/set", 'frm_GeneralSettings', function(){
+                // action to run after successful save, for example reconfigure service.
+                ajaxCall(url="/api/abuseipdbchecker/service/reconfigure", sendData={}, callback=function(data,status) {
+                    // Update stats after reconfigure
+                    updateStats();
+                    updateThreats();
+                });
+            });
         });
 
         // Run now button
-        $("#runAct").click(function() {
-            // Show loading indicator
-            var runBtn = $(this);
-            runBtn.prop('disabled', true);
-            runBtn.html('<i class="fa fa-spinner fa-spin"></i> {{ lang._("Running...") }}');
-            
-            ajaxCall(
-                "/api/abuseipdbchecker/settings/run",
-                {},
-                function(data, status) {
-                    // Update statistics and threats
-                    updateStats();
-                    updateThreats();
-                    
-                    // Reset button
-                    runBtn.prop('disabled', false);
-                    runBtn.html('{{ lang._("Run Now") }}');
-                }
-            );
+        $("#runAct").SimpleActionButton({
+            onPreAction: function() {
+                // Set button to loading state
+                return true;
+            },
+            onAction: function(data) {
+                // Update stats and threats
+                updateStats();
+                updateThreats();
+            }
         });
 
-        // Update form data from API - THIS FUNCTION IS MODIFIED
-        function updateFormData() {
-            ajaxCall(
-                "/api/abuseipdbchecker/settings/get",
-                {},
-                function(data, status) {
-                    // Extract the abuseipdbchecker part of the response
-                    var formData = data.abuseipdbchecker;
-                    
-                    // Use OPNsense's built-in function to map API data to form
-                    mapDataToFormUI({'frm_GeneralSettings': formData}).done(function() {
-                        // Form is now populated, enable events/plugins
-                        $('.selectpicker').selectpicker('refresh');
-                    });
-                }
-            );
-        }
+        // Refresh logs button
+        $("#refreshLogsBtn").click(function() {
+            updateLogs();
+        });
 
         // Update statistics
         function updateStats() {
@@ -428,11 +381,6 @@
                 }
             );
         }
-
-        // Refresh logs button
-        $("#refreshLogsBtn").click(function() {
-            updateLogs();
-        });
 
         // Update logs function
         function updateLogs() {

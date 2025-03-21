@@ -1,47 +1,15 @@
 <?php
 namespace OPNsense\AbuseIPDBChecker\Api;
 
-use OPNsense\Base\ApiControllerBase;
+use OPNsense\Base\ApiMutableModelControllerBase;
 use OPNsense\Core\Backend;
 use OPNsense\Core\Config;
 use OPNsense\AbuseIPDBChecker\AbuseIPDBChecker;
 
-class SettingsController extends ApiControllerBase
+class SettingsController extends ApiMutableModelControllerBase
 {
-    /**
-     * Retrieve plugin settings
-     * @return array
-     */
-    public function getAction()
-    {
-        $model = new AbuseIPDBChecker();
-        $result = array("abuseipdbchecker" => $model->getNodes());
-        return $result;
-    }
-
-    /**
-     * Update plugin settings
-     * @return array
-     */
-    public function setAction()
-    {
-        $result = array("result" => "failed");
-        if ($this->request->isPost()) {
-            $model = new AbuseIPDBChecker();
-            $model->setNodes($this->request->getPost("abuseipdbchecker"));
-            $validationMessages = $model->performValidation();
-
-            if (count($validationMessages) > 0) {
-                $result["validations"] = $validationMessages;
-            } else {
-                // Save model after validation
-                $model->serializeToConfig();
-                Config::getInstance()->save();
-                $result["result"] = "saved";
-            }
-        }
-        return $result;
-    }
+    protected static $internalModelClass = 'OPNsense\AbuseIPDBChecker\AbuseIPDBChecker';
+    protected static $internalModelName = 'abuseipdbchecker';
 
     /**
      * Execute plugin checks manually

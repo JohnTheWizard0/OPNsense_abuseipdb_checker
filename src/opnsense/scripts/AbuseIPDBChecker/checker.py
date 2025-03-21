@@ -59,57 +59,19 @@ class AbuseIPDBChecker:
         
         # Check if config file exists
         if not os.path.exists(config_path):
-            logger.warning(f"Configuration file not found at {config_path}, creating default")
-            self.create_default_config(config_path)
+            logger.warning(f"Configuration file not found at {config_path}")
+            sys.exit(1)
+        
         self.config.read(config_path)
         
         # Check if API key is set to default
-        if self.config.get('AbuseIPDB', 'APIKey') == 'YOUR_API_KEY_HERE':
+        if self.config.get('AbuseIPDB', 'APIKey') == 'YOUR_API_KEY':
             logger.error("API key not configured. Please update the configuration file.")
             sys.exit(1)
             
         # Initialize database
         self.init_database()
         
-    def create_default_config(self, config_path):
-        """Create a default configuration file if none exists"""
-        self.config['General'] = {
-            'LogFile': '/var/log/filter.log',
-            'CheckFrequency': '7',  # days
-            'AbuseScoreThreshold': '80',
-            'DailyCheckLimit': '100',  # Max IPs to check per day
-            'IgnoreBlockedConnections': 'true'  # Only examine allowed traffic
-        }
-        
-        self.config['NetworkSettings'] = {
-            'LANSubnets': '192.168.0.0/16,10.0.0.0/8,172.16.0.0/12',  # LAN subnets to monitor
-            'IgnoreProtocols': 'icmp,igmp'  # Protocols to ignore
-        }
-        
-        self.config['AbuseIPDB'] = {
-            'APIKey': 'YOUR_API_KEY_HERE',
-            'APIEndpoint': 'https://www.abuseipdb.com/check',
-            'MaxAge': '90'  # days to look back in AbuseIPDB reports
-        }
-        
-        self.config['Email'] = {
-            'Enabled': 'true',
-            'SMTPServer': 'smtp.example.com',
-            'SMTPPort': '587',
-            'SMTPUsername': 'your_username',
-            'SMTPPassword': 'your_password',
-            'FromAddress': 'firewall@yourdomain.com',
-            'ToAddress': 'admin@yourdomain.com',
-            'UseTLS': 'true'
-        }
-        
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        with open(config_path, 'w') as configfile:
-            self.config.write(configfile)
-        
-        logger.info(f"Created default configuration file at {config_path}")
-        logger.info("Please edit this file to set your API key and other settings")
-
     def init_database(self):
         """Initialize the SQLite database to store checked IPs and daily stats"""
         # Ensure the directory exists
@@ -548,6 +510,14 @@ def main():
     parser.add_argument('--create-config', action='store_true', help='Create default configuration file only')
     args = parser.parse_args()
     
+    # At the beginning of the script
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+
+    # In main()
+    if args.debug:
+        logging.getLogger('').setLevel(logging.DEBUG)
+        logger.debug("Debug logging enabled")
+
     checker = AbuseIPDBChecker(args.config)
     
     if args.create_config:
