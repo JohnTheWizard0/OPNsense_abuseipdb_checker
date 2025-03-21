@@ -53,4 +53,26 @@ class ServiceController extends ApiControllerBase
         
         return $response;
     }
+
+    public function reconfigureAction()
+    {
+        if ($this->request->isPost()) {
+            // Always generate config file first
+            $backend = new Backend();
+            $response = $backend->configdRun('abuseipdbchecker generate-config');
+            
+            // Then restart service if enabled
+            $model = new AbuseIPDBChecker();
+            if ((string)$model->general->enabled == '1') {
+                $response = $backend->configdRun('service restart abuseipdbchecker');
+            } else {
+                $response = $backend->configdRun('service stop abuseipdbchecker');
+            }
+            
+            return ['status' => 'ok', 'message' => $response];
+        }
+        
+        return ['status' => 'failed', 'message' => 'Only POST requests allowed'];
+    }
+
 }

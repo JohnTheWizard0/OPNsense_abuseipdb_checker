@@ -43,6 +43,9 @@
                 cp +FULLPKGPATH+/src/rc.d/abuseipdbchecker /usr/local/etc/rc.d/
                 chmod +x /usr/local/etc/rc.d/abuseipdbchecker
                 
+                # Generate initial configuration
+                /usr/local/opnsense/scripts/AbuseIPDBChecker/configcommands.php generate-config
+                
                 # Install Python dependencies
                 pkg install -y py38-requests py38-sqlite3
             ]]>

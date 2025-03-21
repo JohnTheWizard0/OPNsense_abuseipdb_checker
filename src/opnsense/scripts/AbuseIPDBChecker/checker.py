@@ -56,10 +56,18 @@ class AbuseIPDBChecker:
     def __init__(self, config_path=CONFIG_FILE):
         # Load configuration
         self.config = ConfigParser()
+        
+        # Check if config file exists
         if not os.path.exists(config_path):
+            logger.warning(f"Configuration file not found at {config_path}, creating default")
             self.create_default_config(config_path)
         self.config.read(config_path)
-
+        
+        # Check if API key is set to default
+        if self.config.get('AbuseIPDB', 'APIKey') == 'YOUR_API_KEY_HERE':
+            logger.error("API key not configured. Please update the configuration file.")
+            sys.exit(1)
+            
         # Initialize database
         self.init_database()
         
@@ -142,7 +150,22 @@ class AbuseIPDBChecker:
         
         conn.commit()
         conn.close()
-        
+    
+    def validate_config(self):
+        """Ensure all required configuration elements are present and valid"""
+        required_sections = ['General', 'NetworkSettings', 'AbuseIPDB', 'Email']
+        for section in required_sections:
+            if not self.config.has_section(section):
+                logger.error(f"Missing required configuration section: {section}")
+                return False
+                
+        # Check key settings
+        if not self.config.get('AbuseIPDB', 'APIKey') or self.config.get('AbuseIPDB', 'APIKey') == 'YOUR_API_KEY_HERE':
+            logger.error("AbuseIPDB API key is not configured")
+            return False
+            
+        return True
+
     def parse_firewall_logs(self):
         """
         Parse OPNsense firewall logs to extract source IPs targeting LAN subnets
