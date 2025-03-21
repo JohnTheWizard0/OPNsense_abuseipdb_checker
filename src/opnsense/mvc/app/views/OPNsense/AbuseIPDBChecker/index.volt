@@ -1,287 +1,231 @@
 {#
-    AbuseIPDB Checker Plugin
-    
-    Configure and monitor IP reputation using AbuseIPDB API
-#}
-
-<script type="text/javascript">
-    $( document ).ready(function() {
-        // Load settings form
-        mapDataToFormUI({
-            'frm_GeneralSettings':"/api/abuseipdbchecker/settings/get"
-        }).done(function(data){
-            // Update statistics after loading form
-            updateStats();
-            updateThreats();
-        });
-
-        // Save settings
-        $("#saveAct").click(function(){
-            saveFormToEndpoint(
-                url="/api/abuseipdbchecker/settings/set",
-                formid='frm_GeneralSettings',
-                callback_ok=function(){
-                    // Reconfigure service after save
-                    ajaxCall(
-                        url="/api/abuseipdbchecker/service/reconfigure",
-                        sendData={},
-                        callback=function(data,status) {
-                            // Update stats after reconfigure
-                            updateStats();
-                            updateThreats();
-                        }
-                    );
-                }
-            );
-        });
-
-        // Run now button
-        $("#runAct").click(function() {
-            // Disable button and show spinner
-            $(this).prop('disabled', true);
-            $(this).html('<i class="fa fa-spinner fa-spin"></i> {{ lang._("Running...") }}');
-            
-            // Call API to run checker
-            ajaxCall(
-                url="/api/abuseipdbchecker/service/run",
-                sendData={},
-                callback=function(data,status){
-                    // Re-enable button
-                    $("#runAct").prop('disabled', false);
-                    $("#runAct").html('<i class="fa fa-play"></i> {{ lang._("Run Now") }}');
-                    
-                    // Show result
-                    if (data && data.result) {
-                        BootstrapDialog.show({
-                            type: BootstrapDialog.TYPE_INFO,
-                            title: '{{ lang._("Results") }}',
-                            message: data.result.replace(/\n/g, '<br>'),
-                            buttons: [{
-                                label: '{{ lang._("Close") }}',
-                                action: function(dialogRef) {
-                                    dialogRef.close();
-                                }
-                            }]
-                        });
-                    }
-                    
-                    // Update stats and threats
-                    updateStats();
-                    updateThreats();
-                }
-            );
-        });
-
-        // Refresh logs button
-        $("#refreshLogsBtn").click(function() {
-            updateLogs();
-        });
-
-        // Update statistics
-        function updateStats() {
-            ajaxCall(
-                "/api/abuseipdbchecker/settings/stats",
-                {},
-                function(data, status) {
-                    if (data && data.stats) {
-                        $("#total-ips-checked").text(data.stats.total_checked || 0);
-                        $("#total-threats").text(data.stats.total_threats || 0);
-                        $("#checks-today").text(data.stats.checks_today || 0);
-                        $("#last-run").text(data.stats.last_run || 'Never');
-                    }
-                }
-            );
-        }
-
-        // Update threats list
-        function updateThreats() {
-            ajaxCall(
-                "/api/abuseipdbchecker/settings/threats",
-                {},
-                function(data, status) {
-                    var threats = data && data.threats ? data.threats : [];
-                    var table = $("#recent-threats-table");
-                    table.empty();
-                    
-                    if (threats.length === 0) {
-                        table.append('<tr><td colspan="5">{{ lang._("No threats detected") }}</td></tr>');
-                    } else {
-                        threats.forEach(function(threat) {
-                            var row = '<tr>' +
-                                '<td>' + threat.ip + '</td>' +
-                                '<td>' + threat.score + '%</td>' +
-                                '<td>' + threat.last_checked + '</td>' +
-                                '<td>' + (threat.country || 'Unknown') + '</td>' +
-                                '<td><a href="https://www.abuseipdb.com/check/' + threat.ip + '" target="_blank">' +
-                                '<i class="fa fa-external-link"></i></a></td>' +
-                                '</tr>';
-                            table.append(row);
-                        });
-                    }
-                }
-            );
-        }
-
-        // Update logs function
-        function updateLogs() {
-            var refreshBtn = $("#refreshLogsBtn");
-            refreshBtn.prop('disabled', true);
-            refreshBtn.html('<i class="fa fa-spinner fa-spin"></i> {{ lang._("Loading...") }}');
-            
-            ajaxCall(
-                "/api/abuseipdbchecker/settings/logs",
-                {},
-                function(data, status) {
-                    if (data && data.logs) {
-                        var logContentDiv = $("#log-content");
-                        logContentDiv.empty();
-                        
-                        if (data.logs.length > 0) {
-                            // Process and colorize log entries
-                            var logHtml = '';
-                            data.logs.forEach(function(logEntry) {
-                                var colorClass = '';
-                                if (logEntry.toLowerCase().includes('error')) {
-                                    colorClass = 'text-danger';
-                                } else if (logEntry.toLowerCase().includes('warning')) {
-                                    colorClass = 'text-warning';
-                                } else if (logEntry.toLowerCase().includes('threat')) {
-                                    colorClass = 'text-danger';
-                                } else if (logEntry.toLowerCase().includes('check')) {
-                                    colorClass = 'text-info';
-                                }
-                                
-                                logHtml += '<div class="' + colorClass + '">' + escapeHtml(logEntry) + '</div>';
-                            });
-                            
-                            logContentDiv.html(logHtml);
-                            
-                            // Scroll to the bottom of the log container
-                            var logContainer = $(".log-container");
-                            logContainer.scrollTop(logContainer.prop('scrollHeight'));
-                        } else {
-                            logContentDiv.html('<span class="text-muted">{{ lang._("No log entries found") }}</span>');
-                        }
-                    } else {
-                        $("#log-content").html('<span class="text-danger">{{ lang._("Error loading logs") }}</span>');
-                    }
-                    
-                    // Reset button
-                    refreshBtn.prop('disabled', false);
-                    refreshBtn.html('<i class="fa fa-refresh"></i> {{ lang._("Refresh") }}');
-                }
-            );
-        }
-
-        // Helper function to escape HTML
-        function escapeHtml(unsafe) {
-            return unsafe
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-
-        // Load logs when the tab is shown
-        $('a[data-toggle="tab"]').on('shown.bs.tab', function(e) {
-            if ($(e.target).attr('href') === '#logs') {
-                updateLogs();
-            }
-        });
-    });
-</script>
-
-<div class="tab-content content-box">
-    <div id="settings" class="tab-pane fade in active">
-        <div class="content-box-main">
-            <form id="frm_GeneralSettings">
-                <div class="table-responsive">
-                    <!-- Use standardized OPNsense form rendering -->
-                    {{ partial("layout_partials/base_form",['fields':generalForm,'id':'frm_GeneralSettings']) }}
-                </div>
-                
-                <div class="col-md-12">
-                    <hr/>
-                    <button class="btn btn-primary" id="saveAct" type="button"><b>{{ lang._('Save') }}</b></button>
-                    <button class="btn btn-info" id="runAct" type="button"><i class="fa fa-play"></i> <b>{{ lang._('Run Now') }}</b></button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Statistics & Threats Tabs -->
-<div class="content-box">
-    <ul class="nav nav-tabs" data-tabs="tabs" id="abuseipdb-tabs">
-        <li class="active"><a data-toggle="tab" href="#stats">{{ lang._('Statistics') }}</a></li>
-        <li><a data-toggle="tab" href="#threats">{{ lang._('Recent Threats') }}</a></li>
-        <li><a data-toggle="tab" href="#logs">{{ lang._('Logs') }}</a></li>
-    </ul>
-    <div class="tab-content content-box-main">
-        <!-- Statistics Tab -->
-        <div id="stats" class="tab-pane active">
-            <table class="table table-striped table-condensed">
-                <thead>
-                    <tr>
-                        <th colspan="2">{{ lang._('Usage Statistics') }}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>{{ lang._('Total IPs Checked') }}</td>
-                        <td id="total-ips-checked">0</td>
-                    </tr>
-                    <tr>
-                        <td>{{ lang._('Total Threats Detected') }}</td>
-                        <td id="total-threats">0</td>
-                    </tr>
-                    <tr>
-                        <td>{{ lang._('Checks Today') }}</td>
-                        <td id="checks-today">0</td>
-                    </tr>
-                    <tr>
-                        <td>{{ lang._('Last Run') }}</td>
-                        <td id="last-run">Never</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        
-        <!-- Recent Threats Tab -->
-        <div id="threats" class="tab-pane">
-            <table class="table table-striped table-condensed">
-                <thead>
-                    <tr>
-                        <th>{{ lang._('IP Address') }}</th>
-                        <th>{{ lang._('Score') }}</th>
-                        <th>{{ lang._('Last Checked') }}</th>
-                        <th>{{ lang._('Country') }}</th>
-                        <th>{{ lang._('Details') }}</th>
-                    </tr>
-                </thead>
-                <tbody id="recent-threats-table">
-                    <!-- Dynamically populated -->
-                </tbody>
-            </table>
-        </div>
-        
-        <!-- Logs Tab -->
-        <div id="logs" class="tab-pane">
-            <div class="row">
-                <div class="col-md-12">
-                    <button class="btn btn-sm btn-info pull-right" id="refreshLogsBtn">
-                        <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
-                    </button>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-md-12">
-                    <div class="log-container" style="height: 400px; overflow-y: scroll; margin-top: 10px; background-color: #f5f5f5; padding: 10px; font-family: monospace; font-size: 12px;">
-                        <pre id="log-content" style="white-space: pre-wrap;"></pre>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+    # Copyright (C) 2023 Your Name
+    # All rights reserved.
+    #
+    # Redistribution and use in source and binary forms, with or without
+    # modification, are permitted provided that the following conditions are met:
+    #
+    # 1. Redistributions of source code must retain the above copyright notice,
+    #    this list of conditions and the following disclaimer.
+    #
+    # 2. Redistributions in binary form must reproduce the above copyright
+    #    notice, this list of conditions and the following disclaimer in the
+    #    documentation and/or other materials provided with the distribution.
+    #
+    # THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+    # INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+    # AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+    # AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+    # OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+    # SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+    # INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+    # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+    # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+    # POSSIBILITY OF SUCH DAMAGE.
+    #}
+   
+   <script>
+       $(document).ready(function() {
+           // Load settings into form
+           mapDataToFormUI({'frm_GeneralSettings':"/api/abuseipdbchecker/settings/get"}).done(function(data){
+               formatTokenizersUI();
+               $('.selectpicker').selectpicker('refresh');
+           });
+   
+           // Link save button to API set action
+           $("#saveAct").click(function(){
+               saveFormToEndpoint("/api/abuseipdbchecker/settings/set", 'frm_GeneralSettings', function(){
+                   // Action to run after successful save, reconfigure service
+                   ajaxCall(url="/api/abuseipdbchecker/service/reload", sendData={}, callback=function(data,status) {
+                       // Action to run after reload
+                       loadStats();
+                   });
+               });
+           });
+   
+           // Initialize database
+           $("#initdbAct").SimpleActionButton({
+               onPreAction: function() {
+                   $("#initdbAct_progress").removeClass("hide");
+                   return true;
+               },
+               onAction: function(data) {
+                   if (data.status && data.status === 'ok') {
+                       return "Database initialized successfully.";
+                   } else {
+                       return "Error initializing database: " + data.message;
+                   }
+               },
+               onPostAction: function(data) {
+                   $("#initdbAct_progress").addClass("hide");
+               }
+           });
+   
+           // Manual check
+           $("#checkAct").SimpleActionButton({
+               onPreAction: function() {
+                   $("#checkAct_progress").removeClass("hide");
+                   return true;
+               },
+               onAction: function(data) {
+                   if (data.status && data.status === 'ok') {
+                       loadStats();
+                       loadThreats();
+                       return "Manual check completed successfully.";
+                   } else {
+                       return "Error running manual check: " + data.message;
+                   }
+               },
+               onPostAction: function(data) {
+                   $("#checkAct_progress").addClass("hide");
+               }
+           });
+   
+           // Load statistics and threats on page load
+           loadStats();
+           loadThreats();
+   
+           // Update statistics every 60 seconds
+           setInterval(function() {
+               loadStats();
+               loadThreats();
+           }, 60000);
+       });
+   
+       function loadStats() {
+           ajaxCall(url="/api/abuseipdbchecker/service/stats", sendData={}, callback=function(data, status) {
+               if (data.status === "ok") {
+                   $("#stat-total-ips").text(data.total_ips || "0");
+                   $("#stat-total-threats").text(data.total_threats || "0");
+                   $("#stat-last-check").text(data.last_check || "Never");
+                   $("#stat-daily-checks").text(data.daily_checks || "0");
+                   $("#stat-daily-limit").text(data.daily_limit || "0");
+               }
+           });
+       }
+   
+       function loadThreats() {
+           ajaxCall(url="/api/abuseipdbchecker/service/threats", sendData={}, callback=function(data, status) {
+               if (data.status === "ok" && data.threats) {
+                   var tbody = $("#recent-threats tbody");
+                   tbody.empty();
+                   
+                   if (data.threats.length === 0) {
+                       tbody.append('<tr><td colspan="5" class="text-center">No threats detected</td></tr>');
+                   } else {
+                       $.each(data.threats, function(idx, threat) {
+                           var row = $("<tr></tr>");
+                           row.append($("<td></td>").text(threat.ip));
+                           row.append($("<td></td>").text(threat.score));
+                           row.append($("<td></td>").text(threat.reports));
+                           row.append($("<td></td>").text(threat.last_seen));
+                           row.append($("<td></td>").html('<a href="https://www.abuseipdb.com/check/' + threat.ip + '" target="_blank" class="btn btn-xs btn-default"><i class="fa fa-external-link"></i></a>'));
+                           tbody.append(row);
+                       });
+                   }
+               }
+           });
+       }
+   </script>
+   
+   <div class="alert alert-info hidden" role="alert" id="responseMsg"></div>
+   
+   <ul class="nav nav-tabs" role="tablist" id="maintabs">
+       <li class="active"><a data-toggle="tab" href="#settings"><b>{{ lang._('Settings') }}</b></a></li>
+       <li><a data-toggle="tab" href="#statistics"><b>{{ lang._('Statistics') }}</b></a></li>
+       <li><a data-toggle="tab" href="#threats"><b>{{ lang._('Recent Threats') }}</b></a></li>
+   </ul>
+   
+   <div class="tab-content content-box">
+       <div id="settings" class="tab-pane fade in active">
+           {{ partial("layout_partials/base_form", ['fields': generalForm, 'id': 'frm_GeneralSettings']) }}
+           
+           <div class="col-md-12">
+               <button class="btn btn-primary" id="saveAct" type="button"><b>{{ lang._('Save') }}</b></button>
+               <button class="btn btn-default" id="initdbAct" data-endpoint="/api/abuseipdbchecker/service/initdb" data-label="{{ lang._('Initialize Database') }}"></button>
+               <button class="btn btn-default" id="checkAct" data-endpoint="/api/abuseipdbchecker/service/check" data-label="{{ lang._('Run Manual Check') }}"></button>
+               <div class="pull-right">
+                   <span id="initdbAct_progress" class="hide">
+                       <i class="fa fa-spinner fa-pulse"></i> {{ lang._('Initializing database...') }}
+                   </span>
+                   <span id="checkAct_progress" class="hide">
+                       <i class="fa fa-spinner fa-pulse"></i> {{ lang._('Running check...') }}
+                   </span>
+               </div>
+           </div>
+       </div>
+       
+       <div id="statistics" class="tab-pane fade">
+           <div class="content-box">
+               <div class="col-sm-12">
+                   <h2>{{ lang._('System Statistics') }}</h2>
+                   <div class="row">
+                       <div class="col-xs-6 col-sm-3">
+                           <div class="panel panel-default">
+                               <div class="panel-heading">
+                                   <h3 class="panel-title">{{ lang._('Total IPs Checked') }}</h3>
+                               </div>
+                               <div class="panel-body">
+                                   <h4 id="stat-total-ips">0</h4>
+                               </div>
+                           </div>
+                       </div>
+                       <div class="col-xs-6 col-sm-3">
+                           <div class="panel panel-default">
+                               <div class="panel-heading">
+                                   <h3 class="panel-title">{{ lang._('Threats Detected') }}</h3>
+                               </div>
+                               <div class="panel-body">
+                                   <h4 id="stat-total-threats">0</h4>
+                               </div>
+                           </div>
+                       </div>
+                       <div class="col-xs-6 col-sm-3">
+                           <div class="panel panel-default">
+                               <div class="panel-heading">
+                                   <h3 class="panel-title">{{ lang._('Last Check') }}</h3>
+                               </div>
+                               <div class="panel-body">
+                                   <h4 id="stat-last-check">Never</h4>
+                               </div>
+                           </div>
+                       </div>
+                       <div class="col-xs-6 col-sm-3">
+                           <div class="panel panel-default">
+                               <div class="panel-heading">
+                                   <h3 class="panel-title">{{ lang._('API Usage') }}</h3>
+                               </div>
+                               <div class="panel-body">
+                                   <h4><span id="stat-daily-checks">0</span> / <span id="stat-daily-limit">0</span></h4>
+                               </div>
+                           </div>
+                       </div>
+                   </div>
+               </div>
+           </div>
+       </div>
+       
+       <div id="threats" class="tab-pane fade">
+           <div class="content-box">
+               <div class="col-sm-12">
+                   <h2>{{ lang._('Recently Detected Threats') }}</h2>
+                   <table id="recent-threats" class="table table-striped table-bordered">
+                       <thead>
+                           <tr>
+                               <th>{{ lang._('IP Address') }}</th>
+                               <th>{{ lang._('Abuse Score') }}</th>
+                               <th>{{ lang._('Reports') }}</th>
+                               <th>{{ lang._('Last Seen') }}</th>
+                               <th>{{ lang._('Actions') }}</th>
+                           </tr>
+                       </thead>
+                       <tbody>
+                           <tr>
+                               <td colspan="5" class="text-center">{{ lang._('Loading...') }}</td>
+                           </tr>
+                       </tbody>
+                   </table>
+               </div>
+           </div>
+       </div>
+   </div>

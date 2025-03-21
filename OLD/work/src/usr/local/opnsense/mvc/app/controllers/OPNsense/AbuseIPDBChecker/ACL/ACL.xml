@@ -1,0 +1,6 @@
+<acl>
+    <page-general>
+        <name>AbuseIPDBChecker: General</name>
+        <pattern>ui/abuseipdbchecker/general/*</pattern>
+    </page-general>
+</acl>

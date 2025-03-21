@@ -1,0 +1,63 @@
+#!/bin/sh
+#
+# $FreeBSD$
+#
+
+# PROVIDE: abuseipdbchecker
+# REQUIRE: SERVERS
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name=abuseipdbchecker
+rcvar=abuseipdbchecker_enable
+
+load_rc_config $name
+
+: ${abuseipdbchecker_enable="NO"}
+
+start_cmd="abuseipdbchecker_start"
+stop_cmd="abuseipdbchecker_stop"
+status_cmd="abuseipdbchecker_status"
+
+abuseipdbchecker_start()
+{
+    if [ ! -f /var/run/${name}.pid ]; then
+        echo "Starting ${name}."
+        /usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker/checker.py check > /dev/null 2>&1
+        echo "1" > /var/run/${name}.pid
+        
+        # Add to cron for hourly checks if not already there
+        crontab -l 2>/dev/null | grep -q "abuseipdbchecker" || (
+            crontab -l 2>/dev/null; 
+            echo "0 * * * * /usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker/checker.py check > /dev/null 2>&1"
+        ) | crontab -
+    else
+        echo "${name} already running."
+    fi
+}
+
+abuseipdbchecker_stop()
+{
+    if [ -f /var/run/${name}.pid ]; then
+        echo "Stopping ${name}."
+        rm -f /var/run/${name}.pid
+        
+        # Remove from cron
+        crontab -l 2>/dev/null | grep -v "abuseipdbchecker" | crontab -
+    else
+        echo "${name} not running."
+    fi
+}
+
+abuseipdbchecker_status()
+{
+    if [ -f /var/run/${name}.pid ]; then
+        echo "${name} is running."
+    else
+        echo "${name} is not running."
+        return 1
+    fi
+}
+
+run_rc_command "$1"

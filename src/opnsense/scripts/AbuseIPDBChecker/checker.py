@@ -1,530 +1,537 @@
-#!/usr/bin/env python3
-"""
-OPNsense AbuseIPDB Integration Plugin
--------------------------------------
-This plugin monitors firewall logs for incoming connections to LAN subnets,
-checks source IPs against AbuseIPDB, and sends email notifications for threats.
-Features:
-- Focuses on external IPs attempting to connect to LAN subnets
-- Reports destination ports in notifications
-- Configurable protocol filtering
-- Option to ignore blocked connections
-- Daily API check limits
-- Full WebGUI integration
-"""
+#!/usr/local/bin/python3
 
+"""
+    Copyright (c) 2023 Your Name
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice,
+     this list of conditions and the following disclaimer.
+
+    2. Redistributions in binary form must reproduce the above copyright
+     notice, this list of conditions and the following disclaimer in the
+     documentation and/or other materials provided with the distribution.
+
+    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+    POSSIBILITY OF SUCH DAMAGE.
+
+    --------------------------------------------------------------------------------------
+    AbuseIPDB Checker Script - Checks IPs against AbuseIPDB
+"""
 import os
 import sys
-import json
 import time
+import json
 import sqlite3
-import smtplib
-import requests
-import argparse
 import ipaddress
-import subprocess
-import logging
-from datetime import datetime, timedelta
+import re
+import requests
+import smtplib
+import argparse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from datetime import datetime, timedelta
 from configparser import ConfigParser
 
-# Default configuration file path
-CONFIG_FILE = '/usr/local/etc/abuseipdb_checker.conf'
-DB_FILE = '/var/db/abuseipdb_checker.db'
+# Constants
+DB_DIR = '/var/db/abuseipdbchecker'
+DB_FILE = os.path.join(DB_DIR, 'abuseipdb.db')
+CONFIG_FILE = '/usr/local/etc/abuseipdbchecker/abuseipdbchecker.conf'
 
-# Configure logging
-log_file = '/var/log/abuseipdb_checker.log'
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+# Command modes
+MODE_CHECK = 'check'
+MODE_STATS = 'stats'
+MODE_THREATS = 'threats'
 
-# Add a console handler as well for direct output
-console = logging.StreamHandler()
-console.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
-console.setFormatter(formatter)
-logging.getLogger('').addHandler(console)
-
-# Create logger
-logger = logging.getLogger('abuseipdb_checker')
-
-class AbuseIPDBChecker:
-    def __init__(self, config_path=CONFIG_FILE):
-        # Load configuration
-        self.config = ConfigParser()
-        
-        # Check if config file exists
-        if not os.path.exists(config_path):
-            logger.warning(f"Configuration file not found at {config_path}")
-            sys.exit(1)
-        
-        self.config.read(config_path)
-        
-        # Check if API key is set to default
-        if self.config.get('AbuseIPDB', 'APIKey') == 'YOUR_API_KEY':
-            logger.error("API key not configured. Please update the configuration file.")
-            sys.exit(1)
-            
-        # Initialize database
-        self.init_database()
-        
-    def init_database(self):
-        """Initialize the SQLite database to store checked IPs and daily stats"""
-        # Ensure the directory exists
-        os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
-        
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        
-        # Create IPs table if it doesn't exist
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS checked_ips (
-                ip TEXT PRIMARY KEY,
-                last_checked TIMESTAMP,
-                score INTEGER,
-                is_threat BOOLEAN
-            )
-        ''')
-        
-        # Create table to track daily API usage
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS daily_stats (
-                date TEXT PRIMARY KEY,
-                checks_performed INTEGER
-            )
-        ''')
-        
-        # Create table to store connection details for reporting
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS connection_details (
-                ip TEXT,
-                dest_ip TEXT,
-                dest_port INTEGER,
-                protocol TEXT,
-                timestamp TIMESTAMP,
-                PRIMARY KEY (ip, dest_ip, dest_port, protocol)
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
+def read_config():
+    """Read configuration from OPNsense config file"""
+    config = {
+        'enabled': False,
+        'log_file': '/var/log/filter.log',
+        'check_frequency': 7,
+        'abuse_score_threshold': 80,
+        'daily_check_limit': 100,
+        'ignore_blocked_connections': True,
+        'lan_subnets': ['192.168.0.0/16', '10.0.0.0/8', '172.16.0.0/12'],
+        'ignore_protocols': ['icmp', 'igmp'],
+        'api_key': '',
+        'api_endpoint': 'https://api.abuseipdb.com/api/v2/check',
+        'max_age': 90,
+        'email_enabled': False,
+        'smtp_server': '',
+        'smtp_port': 587,
+        'smtp_username': '',
+        'smtp_password': '',
+        'from_address': '',
+        'to_address': '',
+        'use_tls': True
+    }
     
-    def validate_config(self):
-        """Ensure all required configuration elements are present and valid"""
-        required_sections = ['General', 'NetworkSettings', 'AbuseIPDB', 'Email']
-        for section in required_sections:
-            if not self.config.has_section(section):
-                logger.error(f"Missing required configuration section: {section}")
-                return False
-                
-        # Check key settings
-        if not self.config.get('AbuseIPDB', 'APIKey') or self.config.get('AbuseIPDB', 'APIKey') == 'YOUR_API_KEY_HERE':
-            logger.error("AbuseIPDB API key is not configured")
-            return False
-            
-        return True
-
-    def parse_firewall_logs(self):
-        """
-        Parse OPNsense firewall logs to extract source IPs targeting LAN subnets
-        Returns a dictionary mapping IPs to details about their connections
-        """
-        log_file = self.config.get('General', 'LogFile')
-        connection_data = {}
-        
-        # Get configuration settings
-        lan_subnets_str = self.config.get('NetworkSettings', 'LANSubnets')
-        lan_subnets = [ipaddress.ip_network(subnet.strip()) for subnet in lan_subnets_str.split(',')]
-        
-        ignore_protocols = [p.strip().lower() for p in 
-                           self.config.get('NetworkSettings', 'IgnoreProtocols').split(',')]
-        
-        ignore_blocked = self.config.getboolean('General', 'IgnoreBlockedConnections')
-        
+    if os.path.exists(CONFIG_FILE):
         try:
-            # Use tail to get the most recent log entries
-            log_output = subprocess.check_output(['tail', '-n', '5000', log_file]).decode('utf-8')
+            cp = ConfigParser()
+            cp.read(CONFIG_FILE)
             
-            for line in log_output.splitlines():
-                # Skip lines that don't match our criteria
-                if ignore_blocked and 'block' in line:
-                    continue
-                    
-                # Extract connection details
-                try:
-                    parts = line.split()
-                    
-                    # Find the protocol
-                    protocol_idx = None
-                    for idx, part in enumerate(parts):
-                        if part.lower() in ('tcp', 'udp', 'icmp', 'igmp'):
-                            protocol_idx = idx
-                            break
-                            
-                    if protocol_idx is None:
-                        continue
-                        
-                    protocol = parts[protocol_idx].lower()
-                    
-                    # Skip ignored protocols
-                    if protocol in ignore_protocols:
-                        continue
-                    
-                    # Look for source and destination IP and port
-                    if len(parts) >= protocol_idx + 6:  # Ensure enough parts exist
-                        src_ip = parts[protocol_idx + 2]
-                        dst_ip = parts[protocol_idx + 3]
-                        
-                        dst_port = "n/a"
-                        if protocol in ('tcp', 'udp') and len(parts) >= protocol_idx + 5:
-                            dst_port = parts[protocol_idx + 4]
-                        
-                        # Validate IPs
-                        src_ip_obj = ipaddress.ip_address(src_ip)
-                        dst_ip_obj = ipaddress.ip_address(dst_ip)
-                        
-                        # Check if destination is in our LAN subnets
-                        is_dest_in_lan = any(dst_ip_obj in subnet for subnet in lan_subnets)
-                        
-                        # Only include external IPs targeting our LAN
-                        if not src_ip_obj.is_private and is_dest_in_lan:
-                            if src_ip not in connection_data:
-                                connection_data[src_ip] = []
-                                
-                            connection_data[src_ip].append({
-                                'dest_ip': dst_ip,
-                                'dest_port': dst_port,
-                                'protocol': protocol,
-                                'timestamp': datetime.now().isoformat()
-                            })
-                            
-                            # Store connection details in database for reporting
-                            conn = sqlite3.connect(DB_FILE)
-                            cursor = conn.cursor()
-                            cursor.execute('''
-                                INSERT OR REPLACE INTO connection_details
-                                (ip, dest_ip, dest_port, protocol, timestamp)
-                                VALUES (?, ?, ?, ?, ?)
-                            ''', (src_ip, dst_ip, dst_port, protocol, datetime.now().isoformat()))
-                            conn.commit()
-                            conn.close()
-                            
-                except (ValueError, IndexError):
-                    # Skip malformed log lines
-                    continue
-                                
+            if cp.has_section('general'):
+                if cp.has_option('general', 'Enabled'):
+                    config['enabled'] = cp.get('general', 'Enabled') == '1'
+                if cp.has_option('general', 'SMTPHost'):
+                    config['log_file'] = cp.get('general', 'logFile')
+                if cp.has_option('general', 'checkFrequency'):
+                    config['check_frequency'] = int(cp.get('general', 'checkFrequency'))
+                if cp.has_option('general', 'abuseScoreThreshold'):
+                    config['abuse_score_threshold'] = int(cp.get('general', 'abuseScoreThreshold'))
+                if cp.has_option('general', 'dailyCheckLimit'):
+                    config['daily_check_limit'] = int(cp.get('general', 'dailyCheckLimit'))
+                if cp.has_option('general', 'ignoreBlockedConnections'):
+                    config['ignore_blocked_connections'] = cp.get('general', 'ignoreBlockedConnections') == '1'
+            
+            if cp.has_section('network'):
+                if cp.has_option('network', 'lanSubnets'):
+                    config['lan_subnets'] = [subnet.strip() for subnet in cp.get('network', 'lanSubnets').split(',')]
+                if cp.has_option('network', 'ignoreProtocols'):
+                    config['ignore_protocols'] = [proto.strip() for proto in cp.get('network', 'ignoreProtocols').split(',')]
+            
+            if cp.has_section('api'):
+                if cp.has_option('api', 'key'):
+                    config['api_key'] = cp.get('api', 'key')
+                if cp.has_option('api', 'endpoint'):
+                    config['api_endpoint'] = cp.get('api', 'endpoint')
+                if cp.has_option('api', 'maxAge'):
+                    config['max_age'] = int(cp.get('api', 'maxAge'))
+            
+            if cp.has_section('email'):
+                if cp.has_option('email', 'enabled'):
+                    config['email_enabled'] = cp.get('email', 'enabled') == '1'
+                if cp.has_option('email', 'smtpServer'):
+                    config['smtp_server'] = cp.get('email', 'smtpServer')
+                if cp.has_option('email', 'smtpPort'):
+                    config['smtp_port'] = int(cp.get('email', 'smtpPort'))
+                if cp.has_option('email', 'smtpUsername'):
+                    config['smtp_username'] = cp.get('email', 'smtpUsername')
+                if cp.has_option('email', 'smtpPassword'):
+                    config['smtp_password'] = cp.get('email', 'smtpPassword')
+                if cp.has_option('email', 'fromAddress'):
+                    config['from_address'] = cp.get('email', 'fromAddress')
+                if cp.has_option('email', 'toAddress'):
+                    config['to_address'] = cp.get('email', 'toAddress')
+                if cp.has_option('email', 'useTLS'):
+                    config['use_tls'] = cp.get('email', 'useTLS') == '1'
         except Exception as e:
-            logger.error(f"Error parsing firewall logs: {e}")
-            
-        return connection_data
-        
-    def should_check_ip(self, ip):
-        """
-        Determine if an IP should be checked based on:
-        1. Last check time (to respect weekly check interval)
-        2. Daily API check limit (to respect API usage constraints)
-        """
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        
-        # Check if IP was recently checked
-        cursor.execute('''
-            SELECT last_checked FROM checked_ips
-            WHERE ip = ?
-        ''', (ip,))
-        
-        result = cursor.fetchone()
-        
-        # If we've checked this IP before, verify it's been long enough since last check
-        if result:
-            last_checked = datetime.fromisoformat(result[0])
-            check_frequency = int(self.config.get('General', 'CheckFrequency'))
-            
-            if datetime.now() - last_checked <= timedelta(days=check_frequency):
-                conn.close()
-                return False
-        
-        # Check against daily API limit
-        today = datetime.now().strftime('%Y-%m-%d')
-        cursor.execute('''
-            SELECT checks_performed FROM daily_stats
-            WHERE date = ?
-        ''', (today,))
-        
-        result = cursor.fetchone()
-        daily_limit = int(self.config.get('General', 'DailyCheckLimit'))
-        
-        if result:
-            checks_today = result[0]
-            if checks_today >= daily_limit:
-                logger.warning(f"Daily API check limit of {daily_limit} reached. Skipping remaining IPs.")
-                conn.close()
-                return False
-        
-        conn.close()
-        return True
-        
-    def update_daily_check_count(self):
-        """Updates the daily check count in the database"""
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        
-        today = datetime.now().strftime('%Y-%m-%d')
-        
-        cursor.execute('''
-            INSERT INTO daily_stats (date, checks_performed)
-            VALUES (?, 1)
-            ON CONFLICT(date) DO UPDATE SET
-            checks_performed = checks_performed + 1
-        ''', (today,))
-        
-        conn.commit()
-        conn.close()
+            print(f"Error reading config: {str(e)}", file=sys.stderr)
     
-    def get_connection_details_for_ip(self, ip):
-        """Retrieves all connection details for a given IP from the database"""
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT dest_ip, dest_port, protocol, timestamp
-            FROM connection_details
-            WHERE ip = ?
-            ORDER BY timestamp DESC
-        ''', (ip,))
-        
-        details = cursor.fetchall()
-        conn.close()
-        
-        return details
-    
-    def check_ip_against_abuseipdb(self, ip):
-        """Check an IP against the AbuseIPDB API"""
-        api_key = self.config.get('AbuseIPDB', 'APIKey')
-        max_age = self.config.get('AbuseIPDB', 'MaxAge')
-        
-        # Use the proper API endpoint format
-        api_endpoint = f"https://www.abuseipdb.com/check/{ip}/json"
-        
-        params = {
-            'key': api_key,
-            'days': max_age
-        }
-        
-        try:
-            response = requests.get(api_endpoint, params=params)
-            response.raise_for_status()
-            
-            # Update daily API check count
-            self.update_daily_check_count()
-            
-            data = response.json()
-            
-            # Handle the response based on the API structure
-            if 'data' in data:
-                score = data['data'].get('abuseConfidenceScore', 0)
-                threshold = int(self.config.get('General', 'AbuseScoreThreshold'))
-                is_threat = score >= threshold
-                
-                # Update database
-                conn = sqlite3.connect(DB_FILE)
-                cursor = conn.cursor()
-                
-                cursor.execute('''
-                    INSERT OR REPLACE INTO checked_ips
-                    (ip, last_checked, score, is_threat)
-                    VALUES (?, ?, ?, ?)
-                ''', (ip, datetime.now().isoformat(), score, is_threat))
-                
-                conn.commit()
-                conn.close()
-                
-                if is_threat:
-                    self.send_threat_notification(ip, score, data['data'])
-                    
-                return is_threat
-                
-        except Exception as e:
-            logger.error(f"Error checking IP {ip} against AbuseIPDB: {e}")
-            
+    return config
+
+def is_ip_in_networks(ip, networks):
+    """Check if IP is in any of the specified networks"""
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        for network in networks:
+            try:
+                if ip_obj in ipaddress.ip_network(network):
+                    return True
+            except ValueError:
+                continue
         return False
+    except ValueError:
+        return False
+
+def parse_log_for_ips(config):
+    """Parse firewall log for external IPs connecting to LAN"""
+    external_ips = set()
+    
+    if not os.path.exists(config['log_file']):
+        return external_ips
+    
+    # Convert LAN subnets to proper network objects
+    lan_networks = []
+    for subnet in config['lan_subnets']:
+        try:
+            lan_networks.append(ipaddress.ip_network(subnet))
+        except ValueError:
+            continue
+    
+    # Regular expression for IPv4 addresses
+    ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+    
+    # Read and parse log file
+    with open(config['log_file'], 'r') as f:
+        for line in f:
+            # Skip lines with ignored protocols
+            if any(proto in line.lower() for proto in config['ignore_protocols']):
+                continue
+                
+            # Skip blocked connections if configured
+            if config['ignore_blocked_connections'] and 'block' in line.lower():
+                continue
+                
+            # Find all IPs in the line
+            matches = ip_pattern.findall(line)
+            for ip in matches:
+                try:
+                    ip_obj = ipaddress.ip_address(ip)
+                    
+                    # Skip private IPs and IPs in LAN subnets
+                    if ip_obj.is_private or any(ip_obj in network for network in lan_networks):
+                        continue
+                        
+                    external_ips.add(ip)
+                except ValueError:
+                    continue
+    
+    return external_ips
+
+def check_ip_abuseipdb(ip, config):
+    """Check an IP against AbuseIPDB API"""
+    if not config['api_key']:
+        return None
         
-    def send_threat_notification(self, ip, score, details):
-        """Send an email notification about a potential threat with connection details"""
-        if not self.config.getboolean('Email', 'Enabled'):
-            return
-            
-        smtp_server = self.config.get('Email', 'SMTPServer')
-        smtp_port = self.config.getint('Email', 'SMTPPort')
-        smtp_user = self.config.get('Email', 'SMTPUsername')
-        smtp_pass = self.config.get('Email', 'SMTPPassword')
-        from_addr = self.config.get('Email', 'FromAddress')
-        to_addr = self.config.get('Email', 'ToAddress')
-        use_tls = self.config.getboolean('Email', 'UseTLS')
+    headers = {
+        'Key': config['api_key'],
+        'Accept': 'application/json'
+    }
+    
+    params = {
+        'ipAddress': ip,
+        'maxAgeInDays': config['max_age']
+    }
+    
+    try:
+        response = requests.get(
+            config['api_endpoint'], 
+            headers=headers, 
+            params=params
+        )
         
-        # Create email content
+        if response.status_code == 200:
+            return response.json().get('data', {})
+        else:
+            print(f"API error: {response.status_code} - {response.text}", file=sys.stderr)
+            return None
+    except Exception as e:
+        print(f"Error checking IP {ip}: {str(e)}", file=sys.stderr)
+        return None
+
+def send_email_notification(threat_ip, report, config):
+    """Send email notification about detected threat"""
+    if not config['email_enabled'] or not config['smtp_server'] or not config['from_address'] or not config['to_address']:
+        return False
+    
+    try:
         msg = MIMEMultipart()
-        msg['From'] = from_addr
-        msg['To'] = to_addr
-        msg['Subject'] = f"Firewall Alert: Potential Threat from {ip}"
+        msg['From'] = config['from_address']
+        msg['To'] = config['to_address']
+        msg['Subject'] = f"AbuseIPDB Alert: Malicious IP {threat_ip} detected"
         
-        # Get connection details for this IP
-        connection_details = self.get_connection_details_for_ip(ip)
-        
-        # Prepare connection details HTML
-        connection_html = ""
-        if connection_details:
-            connection_html = """
-            <h3>Connection Attempts</h3>
-            <table border="1" cellpadding="5">
-                <tr>
-                    <th>Destination IP</th>
-                    <th>Destination Port</th>
-                    <th>Protocol</th>
-                    <th>Timestamp</th>
-                </tr>
-            """
-            
-            # Limit to 10 most recent connections to keep email reasonable
-            for dest_ip, dest_port, protocol, timestamp in connection_details[:10]:
-                connection_html += f"""
-                <tr>
-                    <td>{dest_ip}</td>
-                    <td>{dest_port}</td>
-                    <td>{protocol.upper()}</td>
-                    <td>{timestamp}</td>
-                </tr>
-                """
-                
-            if len(connection_details) > 10:
-                connection_html += f"""
-                <tr>
-                    <td colspan="4"><em>And {len(connection_details) - 10} more connection attempts...</em></td>
-                </tr>
-                """
-                
-            connection_html += "</table>"
-        
-        # Prepare email body
         body = f"""
         <html>
         <body>
-            <h2>Firewall Alert: Potential Threat Detected</h2>
-            <p>The OPNsense AbuseIPDB Checker has identified a potential threat:</p>
-            
+            <h2>AbuseIPDB Threat Alert</h2>
+            <p>A potentially malicious IP has been detected connecting to your network:</p>
             <table border="1" cellpadding="5">
                 <tr>
                     <th>IP Address</th>
-                    <td>{ip}</td>
+                    <td>{threat_ip}</td>
                 </tr>
                 <tr>
                     <th>Abuse Confidence Score</th>
-                    <td>{score}%</td>
+                    <td>{report.get('abuseConfidenceScore', 'N/A')}%</td>
                 </tr>
                 <tr>
-                    <th>Country</th>
-                    <td>{details.get('countryName', 'Unknown')}</td>
-                </tr>
-                <tr>
-                    <th>ISP</th>
-                    <td>{details.get('isp', 'Unknown')}</td>
-                </tr>
-                <tr>
-                    <th>Domain</th>
-                    <td>{details.get('domain', 'Unknown')}</td>
-                </tr>
-                <tr>
-                    <th>Total Reports</th>
-                    <td>{details.get('totalReports', 'Unknown')}</td>
+                    <th>Reports Count</th>
+                    <td>{report.get('totalReports', 'N/A')}</td>
                 </tr>
                 <tr>
                     <th>Last Reported</th>
-                    <td>{details.get('lastReportedAt', 'Unknown')}</td>
+                    <td>{report.get('lastReportedAt', 'N/A')}</td>
+                </tr>
+                <tr>
+                    <th>Country</th>
+                    <td>{report.get('countryCode', 'N/A')}</td>
                 </tr>
             </table>
-            
-            {connection_html}
-            
-            <p>For more information, visit:</p>
-            <p><a href="https://www.abuseipdb.com/check/{ip}">https://www.abuseipdb.com/check/{ip}</a></p>
+            <p>Details: <a href="https://www.abuseipdb.com/check/{threat_ip}">View on AbuseIPDB</a></p>
         </body>
         </html>
         """
         
         msg.attach(MIMEText(body, 'html'))
         
-        # Send email
-        try:
-            server = smtplib.SMTP(smtp_server, smtp_port)
-            if use_tls:
-                server.starttls()
-            if smtp_user and smtp_pass:
-                server.login(smtp_user, smtp_pass)
-            server.send_message(msg)
-            server.quit()
-            logger.warning(f"Potential threat: Sent notification email for IP {ip} with score {score}")
-        except Exception as e:
-            logger.error(f"Error sending email: {e}")
+        server = smtplib.SMTP(config['smtp_server'], config['smtp_port'])
+        if config['use_tls']:
+            server.starttls()
+        
+        if config['smtp_username'] and config['smtp_password']:
+            server.login(config['smtp_username'], config['smtp_password'])
+        
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Error sending email: {str(e)}", file=sys.stderr)
+        return False
+
+def update_db_stats(conn, key, value):
+    """Update a value in the stats table"""
+    try:
+        c = conn.cursor()
+        c.execute('UPDATE stats SET value = ? WHERE key = ?', (value, key))
+        conn.commit()
+    except Exception as e:
+        print(f"Error updating stats: {str(e)}", file=sys.stderr)
+
+def get_db_stats(conn, key):
+    """Get a value from the stats table"""
+    try:
+        c = conn.cursor()
+        c.execute('SELECT value FROM stats WHERE key = ?', (key,))
+        result = c.fetchone()
+        if result:
+            return result[0]
+        return None
+    except Exception as e:
+        print(f"Error getting stats: {str(e)}", file=sys.stderr)
+        return None
+
+def reset_daily_checks_if_needed(conn):
+    """Reset daily checks count if it's a new day"""
+    try:
+        c = conn.cursor()
+        last_reset = get_db_stats(conn, 'last_reset')
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        if last_reset != today:
+            c.execute('UPDATE stats SET value = ? WHERE key = ?', ('0', 'daily_checks'))
+            c.execute('UPDATE stats SET value = ? WHERE key = ?', (today, 'last_reset'))
+            conn.commit()
+    except Exception as e:
+        print(f"Error resetting daily checks: {str(e)}", file=sys.stderr)
+
+def run_checker(config):
+    """Main function to run the checker"""
+    if not config['enabled']:
+        return {'status': 'disabled', 'message': 'AbuseIPDBChecker is disabled'}
     
-    def run(self):
-        """Main execution method"""
-        logger.info("Starting OPNsense AbuseIPDB Checker...")
+    # Make sure DB exists
+    if not os.path.exists(DB_FILE):
+        return {'status': 'error', 'message': 'Database not initialized. Please run setup_database.py first.'}
+    
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    
+    try:
+        # Reset daily checks if it's a new day
+        reset_daily_checks_if_needed(conn)
         
-        # Get connection data from firewall logs
-        connection_data = self.parse_firewall_logs()
-        source_ips = list(connection_data.keys())
-        logger.info(f"Found {len(source_ips)} unique external IPs targeting LAN subnets")
+        # Get external IPs from log
+        external_ips = parse_log_for_ips(config)
         
-        # Check each IP against AbuseIPDB if needed
-        checked = 0
-        threats = 0
-        daily_limit = int(self.config.get('General', 'DailyCheckLimit'))
+        if not external_ips:
+            update_db_stats(conn, 'last_check', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            return {'status': 'ok', 'message': 'No external IPs found to check'}
         
-        for ip in source_ips:
-            # Stop if we've reached the daily limit
-            if checked >= daily_limit:
-                logger.warning(f"Daily check limit of {daily_limit} reached. Stopping.")
+        # Get current stats
+        daily_checks = int(get_db_stats(conn, 'daily_checks') or '0')
+        daily_limit = config['daily_check_limit']
+        
+        if daily_checks >= daily_limit:
+            return {'status': 'limited', 'message': f'Daily API check limit reached ({daily_checks}/{daily_limit})'}
+        
+        # Check each IP
+        c = conn.cursor()
+        now = datetime.now()
+        check_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        
+        threats_detected = 0
+        ips_checked = 0
+        
+        for ip in external_ips:
+            # Check if we've reached the daily limit
+            if daily_checks >= daily_limit:
                 break
+            
+            # Check if this IP is already in the database
+            c.execute('SELECT * FROM checked_ips WHERE ip = ?', (ip,))
+            existing = c.fetchone()
+            
+            # If IP exists and was checked recently, skip it
+            if existing and datetime.strptime(existing['last_checked'], '%Y-%m-%d %H:%M:%S') > (now - timedelta(days=config['check_frequency'])):
+                continue
+            
+            # Check IP against AbuseIPDB
+            report = check_ip_abuseipdb(ip, config)
+            
+            if report is not None:
+                abuse_score = report.get('abuseConfidenceScore', 0)
+                is_threat = abuse_score >= config['abuse_score_threshold']
                 
-            if self.should_check_ip(ip):
-                logger.info(f"Checking IP: {ip}")
-                is_threat = self.check_ip_against_abuseipdb(ip)
-                checked += 1
+                # Update or insert into checked_ips
+                if existing:
+                    c.execute(
+                        'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, is_threat = ? WHERE ip = ?',
+                        (check_date, 1 if is_threat else 0, ip)
+                    )
+                else:
+                    c.execute(
+                        'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, is_threat) VALUES (?, ?, ?, ?, ?)',
+                        (ip, check_date, check_date, 1, 1 if is_threat else 0)
+                    )
+                
+                # If it's a threat, update or insert into threats table
                 if is_threat:
-                    threats += 1
+                    categories = ','.join(str(cat) for cat in report.get('reports', [{'categories': []}])[0].get('categories', []))
                     
-                # Be nice to the API and avoid rate limiting
-                time.sleep(1)
-            else:
-                logger.info(f"Skipping IP {ip} (recently checked or limit reached)")
+                    c.execute('SELECT * FROM threats WHERE ip = ?', (ip,))
+                    if c.fetchone():
+                        c.execute(
+                            'UPDATE threats SET abuse_score = ?, reports = ?, last_seen = ?, categories = ?, country = ? WHERE ip = ?',
+                            (abuse_score, report.get('totalReports', 0), report.get('lastReportedAt', ''), categories, report.get('countryCode', ''), ip)
+                        )
+                    else:
+                        c.execute(
+                            'INSERT INTO threats (ip, abuse_score, reports, last_seen, categories, country) VALUES (?, ?, ?, ?, ?, ?)',
+                            (ip, abuse_score, report.get('totalReports', 0), report.get('lastReportedAt', ''), categories, report.get('countryCode', ''))
+                        )
+                    
+                    # Send email notification
+                    send_email_notification(ip, report, config)
+                    threats_detected += 1
                 
-        logger.info(f"Checked {checked} IPs, found {threats} potential threats")
+                ips_checked += 1
+                daily_checks += 1
+            
+            # Sleep briefly to avoid rate limiting
+            time.sleep(0.5)
+        
+        # Update stats
+        update_db_stats(conn, 'last_check', check_date)
+        update_db_stats(conn, 'daily_checks', str(daily_checks))
+        total_checks = int(get_db_stats(conn, 'total_checks') or '0') + ips_checked
+        update_db_stats(conn, 'total_checks', str(total_checks))
+        
+        conn.commit()
+        
+        return {
+            'status': 'ok',
+            'message': f'Check completed. Checked {ips_checked} IPs, detected {threats_detected} threats.',
+            'ips_checked': ips_checked,
+            'threats_detected': threats_detected
+        }
+        
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error during check: {str(e)}'}
+    
+    finally:
+        conn.close()
+
+def get_statistics():
+    """Get statistics from the database"""
+    if not os.path.exists(DB_FILE):
+        return {'status': 'error', 'message': 'Database not initialized'}
+    
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        # Get total IPs checked
+        c.execute('SELECT COUNT(*) as count FROM checked_ips')
+        total_ips = c.fetchone()['count']
+        
+        # Get total threats
+        c.execute('SELECT COUNT(*) as count FROM threats')
+        total_threats = c.fetchone()['count']
+        
+        # Get last check time
+        c.execute('SELECT value FROM stats WHERE key = ?', ('last_check',))
+        last_check = c.fetchone()['value']
+        
+        # Get daily checks and limit
+        c.execute('SELECT value FROM stats WHERE key = ?', ('daily_checks',))
+        daily_checks = c.fetchone()['value']
+        
+        config = read_config()
+        daily_limit = config['daily_check_limit']
+        
+        conn.close()
+        
+        return {
+            'status': 'ok',
+            'total_ips': total_ips,
+            'total_threats': total_threats,
+            'last_check': last_check,
+            'daily_checks': daily_checks,
+            'daily_limit': daily_limit
+        }
+    
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error retrieving statistics: {str(e)}'}
+
+def get_recent_threats():
+    """Get the most recent threats from the database"""
+    if not os.path.exists(DB_FILE):
+        return {'status': 'error', 'message': 'Database not initialized'}
+    
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        # Get the 20 most recent threats
+        c.execute('''
+        SELECT t.ip, t.abuse_score, t.reports, t.last_seen, t.country, t.categories
+        FROM threats t
+        JOIN checked_ips c ON t.ip = c.ip
+        ORDER BY c.last_checked DESC
+        LIMIT 20
+        ''')
+        
+        threats = []
+        for row in c.fetchall():
+            threats.append({
+                'ip': row['ip'],
+                'score': row['abuse_score'],
+                'reports': row['reports'],
+                'last_seen': row['last_seen'],
+                'country': row['country'],
+                'categories': row['categories']
+            })
+        
+        conn.close()
+        
+        return {
+            'status': 'ok',
+            'threats': threats
+        }
+    
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error retrieving threats: {str(e)}'}
 
 def main():
-    parser = argparse.ArgumentParser(description='OPNsense AbuseIPDB Integration')
-    parser.add_argument('--config', help='Path to configuration file', default=CONFIG_FILE)
-    parser.add_argument('--create-config', action='store_true', help='Create default configuration file only')
+    """Main entry point"""
+    parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
+    parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS], help='Operation mode')
     args = parser.parse_args()
     
-    # At the beginning of the script
-    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
-
-    # In main()
-    if args.debug:
-        logging.getLogger('').setLevel(logging.DEBUG)
-        logger.debug("Debug logging enabled")
-
-    checker = AbuseIPDBChecker(args.config)
+    if args.mode == MODE_CHECK:
+        config = read_config()
+        result = run_checker(config)
+    elif args.mode == MODE_STATS:
+        result = get_statistics()
+    elif args.mode == MODE_THREATS:
+        result = get_recent_threats()
     
-    if args.create_config:
-        # Just create the config file and exit successfully
-        return
-        
-    checker.run()
+    print(json.dumps(result))
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

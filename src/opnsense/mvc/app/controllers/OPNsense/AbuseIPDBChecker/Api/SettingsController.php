@@ -1,80 +1,43 @@
 <?php
+
+/**
+ *    Copyright (C) 2023 Your Name
+ *
+ *    All rights reserved.
+ *
+ *    Redistribution and use in source and binary forms, with or without
+ *    modification, are permitted provided that the following conditions are met:
+ *
+ *    1. Redistributions of source code must retain the above copyright notice,
+ *       this list of conditions and the following disclaimer.
+ *
+ *    2. Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *
+ *    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ *    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ *    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ *    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ *    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ *    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ *    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ *    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ *    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *    POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
 namespace OPNsense\AbuseIPDBChecker\Api;
 
 use OPNsense\Base\ApiMutableModelControllerBase;
-use OPNsense\Core\Backend;
-use OPNsense\Core\Config;
-use OPNsense\AbuseIPDBChecker\AbuseIPDBChecker;
 
+/**
+ * Class SettingsController
+ * @package OPNsense\AbuseIPDBChecker\Api
+ */
 class SettingsController extends ApiMutableModelControllerBase
 {
-    protected static $internalModelClass = 'OPNsense\AbuseIPDBChecker\AbuseIPDBChecker';
+    protected static $internalModelClass = '\OPNsense\AbuseIPDBChecker\AbuseIPDBChecker';
     protected static $internalModelName = 'abuseipdbchecker';
-
-    /**
-     * Execute plugin checks manually
-     * @return array
-     */
-    public function runAction()
-    {
-        if ($this->request->isPost()) {
-            $backend = new Backend();
-            $response = $backend->configdRun('abuseipdbchecker run');
-            return array("result" => $response);
-        } else {
-            return array("result" => "");
-        }
-    }
-
-    /**
-     * Get statistics about checked IPs and threats
-     * @return array
-     */
-    public function statsAction()
-    {
-        $backend = new Backend();
-        $response = json_decode($backend->configdRun('abuseipdbchecker stats'), true);
-        return array("result" => "ok", "stats" => $response);
-    }
-
-    /**
-     * Get recent threats from the database
-     * @return array
-     */
-    public function threatsAction()
-    {
-        $backend = new Backend();
-        $response = json_decode($backend->configdRun('abuseipdbchecker threats'), true);
-        return array("result" => "ok", "threats" => $response);
-    }
-
-    /**
-     * Get log entries from abuseipdb_checker.log
-     * @return array
-     */
-    public function logsAction()
-    {
-        $backend = new Backend();
-        $response = $backend->configdRun('abuseipdbchecker logs');
-        
-        $logEntries = array();
-        if (!empty($response)) {
-            // Split log content into lines
-            $lines = explode("\n", trim($response));
-            
-            // Process each line and extract info
-            foreach ($lines as $line) {
-                if (!empty(trim($line))) {
-                    $logEntries[] = $line;
-                }
-            }
-            
-            // Only keep the last 500 entries to avoid overwhelming the UI
-            if (count($logEntries) > 500) {
-                $logEntries = array_slice($logEntries, -500);
-            }
-        }
-        
-        return array("result" => "ok", "logs" => $logEntries);
-    }
 }

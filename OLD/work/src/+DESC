@@ -1,0 +1,15 @@
+AbuseIPDB Checker is an OPNsense plugin that monitors external IPs 
+attempting to connect to your LAN subnets and checks them against 
+the AbuseIPDB reputation database.
+
+Features:
+* Monitor external IPs targeting your LAN subnets
+* Check suspicious IPs against AbuseIPDB's reputation database
+* Include connection port information in alerts
+* Configurable protocol filtering
+* Option to focus only on allowed connections
+* Daily API check limits to manage usage
+* Weekly IP rechecking to avoid duplicate lookups
+* Email notifications for potential threats
+
+WWW: https://github.com/yourusername/opnsense-abuseipdb-plugin
