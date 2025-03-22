@@ -218,3 +218,78 @@
         <button class="btn btn-primary" id="saveBtn">Save Settings</button>
     </div>
 </div>
+
+<!-- Statistics & Threats Tabs -->
+<div class="content-box">
+    <ul class="nav nav-tabs" data-tabs="tabs" id="abuseipdb-tabs">
+        <li class="active"><a data-toggle="tab" href="#stats">{{ lang._('Statistics') }}</a></li>
+        <li><a data-toggle="tab" href="#threats">{{ lang._('Recent Threats') }}</a></li>
+        <li><a data-toggle="tab" href="#logs">{{ lang._('Logs') }}</a></li>
+    </ul>
+    <div class="tab-content content-box-main">
+        <!-- Statistics Tab -->
+        <div id="stats" class="tab-pane active">
+            <table class="table table-striped table-condensed">
+                <thead>
+                    <tr>
+                        <th colspan="2">{{ lang._('Usage Statistics') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{{ lang._('Total IPs Checked') }}</td>
+                        <td id="total-ips-checked">0</td>
+                    </tr>
+                    <tr>
+                        <td>{{ lang._('Total Threats Detected') }}</td>
+                        <td id="total-threats">0</td>
+                    </tr>
+                    <tr>
+                        <td>{{ lang._('Checks Today') }}</td>
+                        <td id="checks-today">0</td>
+                    </tr>
+                    <tr>
+                        <td>{{ lang._('Last Run') }}</td>
+                        <td id="last-run">Never</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Recent Threats Tab -->
+        <div id="threats" class="tab-pane">
+            <table class="table table-striped table-condensed">
+                <thead>
+                    <tr>
+                        <th>{{ lang._('IP Address') }}</th>
+                        <th>{{ lang._('Score') }}</th>
+                        <th>{{ lang._('Last Checked') }}</th>
+                        <th>{{ lang._('Country') }}</th>
+                        <th>{{ lang._('Details') }}</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-threats-table">
+                    <!-- Dynamically populated -->
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Logs Tab -->
+        <div id="logs" class="tab-pane">
+            <div class="row">
+                <div class="col-md-12">
+                    <button class="btn btn-sm btn-info pull-right" id="refreshLogsBtn">
+                        <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                    </button>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="log-container" style="height: 400px; overflow-y: scroll; margin-top: 10px; background-color: #f5f5f5; padding: 10px; font-family: monospace; font-size: 12px;">
+                        <pre id="log-content" style="white-space: pre-wrap;"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
