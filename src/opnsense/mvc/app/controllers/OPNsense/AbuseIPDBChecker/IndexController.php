@@ -1,19 +1,13 @@
 <?php
-
-
 namespace OPNsense\AbuseIPDBChecker;
 
-/**
- * Class IndexController
- * @package OPNsense\AbuseIPDBChecker
- */
-class IndexController extends \OPNsense\Base\IndexController
+use OPNsense\Base\IndexController as BaseIndexController;
+
+class IndexController extends BaseIndexController
 {
     public function indexAction()
     {
-        // pick the template to serve to our users.
+        // Just render the view
         $this->view->pick('OPNsense/AbuseIPDBChecker/index');
-        // fetch form data
-        $this->view->generalForm = $this->getForm("general");
     }
 }

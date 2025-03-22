@@ -77,6 +77,14 @@ def read_config():
         'use_tls': True
     }
     
+    # Make sure config directory exists
+    config_dir = os.path.dirname(CONFIG_FILE)
+    if not os.path.exists(config_dir):
+        try:
+            os.makedirs(config_dir, mode=0o755)
+        except OSError as e:
+            print(f"Error creating config directory: {str(e)}", file=sys.stderr)
+    
     if os.path.exists(CONFIG_FILE):
         try:
             cp = ConfigParser()
@@ -85,48 +93,48 @@ def read_config():
             if cp.has_section('general'):
                 if cp.has_option('general', 'Enabled'):
                     config['enabled'] = cp.get('general', 'Enabled') == '1'
-                if cp.has_option('general', 'SMTPHost'):
-                    config['log_file'] = cp.get('general', 'logFile')
-                if cp.has_option('general', 'checkFrequency'):
-                    config['check_frequency'] = int(cp.get('general', 'checkFrequency'))
-                if cp.has_option('general', 'abuseScoreThreshold'):
-                    config['abuse_score_threshold'] = int(cp.get('general', 'abuseScoreThreshold'))
-                if cp.has_option('general', 'dailyCheckLimit'):
-                    config['daily_check_limit'] = int(cp.get('general', 'dailyCheckLimit'))
-                if cp.has_option('general', 'ignoreBlockedConnections'):
-                    config['ignore_blocked_connections'] = cp.get('general', 'ignoreBlockedConnections') == '1'
+                if cp.has_option('general', 'LogFile'):
+                    config['log_file'] = cp.get('general', 'LogFile')
+                if cp.has_option('general', 'CheckFrequency'):
+                    config['check_frequency'] = int(cp.get('general', 'CheckFrequency'))
+                if cp.has_option('general', 'AbuseScoreThreshold'):
+                    config['abuse_score_threshold'] = int(cp.get('general', 'AbuseScoreThreshold'))
+                if cp.has_option('general', 'DailyCheckLimit'):
+                    config['daily_check_limit'] = int(cp.get('general', 'DailyCheckLimit'))
+                if cp.has_option('general', 'IgnoreBlockedConnections'):
+                    config['ignore_blocked_connections'] = cp.get('general', 'IgnoreBlockedConnections') == '1'
             
             if cp.has_section('network'):
-                if cp.has_option('network', 'lanSubnets'):
-                    config['lan_subnets'] = [subnet.strip() for subnet in cp.get('network', 'lanSubnets').split(',')]
-                if cp.has_option('network', 'ignoreProtocols'):
-                    config['ignore_protocols'] = [proto.strip() for proto in cp.get('network', 'ignoreProtocols').split(',')]
+                if cp.has_option('network', 'LanSubnets'):
+                    config['lan_subnets'] = [subnet.strip() for subnet in cp.get('network', 'LanSubnets').split(',')]
+                if cp.has_option('network', 'IgnoreProtocols'):
+                    config['ignore_protocols'] = [proto.strip() for proto in cp.get('network', 'IgnoreProtocols').split(',')]
             
             if cp.has_section('api'):
-                if cp.has_option('api', 'key'):
-                    config['api_key'] = cp.get('api', 'key')
-                if cp.has_option('api', 'endpoint'):
-                    config['api_endpoint'] = cp.get('api', 'endpoint')
-                if cp.has_option('api', 'maxAge'):
-                    config['max_age'] = int(cp.get('api', 'maxAge'))
+                if cp.has_option('api', 'Key'):
+                    config['api_key'] = cp.get('api', 'Key')
+                if cp.has_option('api', 'Endpoint'):
+                    config['api_endpoint'] = cp.get('api', 'Endpoint')
+                if cp.has_option('api', 'MaxAge'):
+                    config['max_age'] = int(cp.get('api', 'MaxAge'))
             
             if cp.has_section('email'):
-                if cp.has_option('email', 'enabled'):
-                    config['email_enabled'] = cp.get('email', 'enabled') == '1'
-                if cp.has_option('email', 'smtpServer'):
-                    config['smtp_server'] = cp.get('email', 'smtpServer')
-                if cp.has_option('email', 'smtpPort'):
-                    config['smtp_port'] = int(cp.get('email', 'smtpPort'))
-                if cp.has_option('email', 'smtpUsername'):
-                    config['smtp_username'] = cp.get('email', 'smtpUsername')
-                if cp.has_option('email', 'smtpPassword'):
-                    config['smtp_password'] = cp.get('email', 'smtpPassword')
-                if cp.has_option('email', 'fromAddress'):
-                    config['from_address'] = cp.get('email', 'fromAddress')
-                if cp.has_option('email', 'toAddress'):
-                    config['to_address'] = cp.get('email', 'toAddress')
-                if cp.has_option('email', 'useTLS'):
-                    config['use_tls'] = cp.get('email', 'useTLS') == '1'
+                if cp.has_option('email', 'Enabled'):
+                    config['email_enabled'] = cp.get('email', 'Enabled') == '1'
+                if cp.has_option('email', 'SmtpServer'):
+                    config['smtp_server'] = cp.get('email', 'SmtpServer')
+                if cp.has_option('email', 'SmtpPort'):
+                    config['smtp_port'] = int(cp.get('email', 'SmtpPort'))
+                if cp.has_option('email', 'SmtpUsername'):
+                    config['smtp_username'] = cp.get('email', 'SmtpUsername')
+                if cp.has_option('email', 'SmtpPassword'):
+                    config['smtp_password'] = cp.get('email', 'SmtpPassword')
+                if cp.has_option('email', 'FromAddress'):
+                    config['from_address'] = cp.get('email', 'FromAddress')
+                if cp.has_option('email', 'ToAddress'):
+                    config['to_address'] = cp.get('email', 'ToAddress')
+                if cp.has_option('email', 'UseTLS'):
+                    config['use_tls'] = cp.get('email', 'UseTLS') == '1'
         except Exception as e:
             print(f"Error reading config: {str(e)}", file=sys.stderr)
     

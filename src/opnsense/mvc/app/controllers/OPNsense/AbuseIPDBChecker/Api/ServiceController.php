@@ -51,7 +51,31 @@ class ServiceController extends ApiMutableServiceControllerBase
     {
         $status = "failed";
         if ($this->request->isPost()) {
-            $status = strtolower(trim((new Backend())->configdRun('template reload OPNsense/AbuseIPDBChecker')));
+            $backend = new Backend();
+            
+            // Check if model data exists in config
+            $configObj = Config::getInstance()->object();
+            $modelPath = 'OPNsense.abuseipdbchecker';
+            
+            if (!isset($configObj->OPNsense) || !isset($configObj->OPNsense->abuseipdbchecker)) {
+                // Configuration doesn't exist yet, force create it
+                $model = new \OPNsense\AbuseIPDBChecker\AbuseIPDBChecker();
+                $model->general->Enabled = 1; // Force enable
+                $model->serializeToConfig();
+                
+                // Save config
+                Config::getInstance()->save();
+            }
+            
+            // Now reload template
+            $status = strtolower(trim($backend->configdRun('template reload OPNsense/AbuseIPDBChecker')));
+            
+            if ($status == "ok") {
+                // Ensure directory exists
+                if (!file_exists('/usr/local/etc/abuseipdbchecker')) {
+                    mkdir('/usr/local/etc/abuseipdbchecker', 0755, true);
+                }
+            }
         }
         return ["status" => $status];
     }
