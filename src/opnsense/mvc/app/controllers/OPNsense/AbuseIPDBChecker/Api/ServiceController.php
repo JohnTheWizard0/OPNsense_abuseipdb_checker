@@ -81,6 +81,19 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * get logs
+     */
+    public function logsAction()
+    {
+        $backend = new Backend();
+        $bckresult = json_decode(trim($backend->configdRun("abuseipdbchecker logs")), true);
+        if ($bckresult !== null) {
+            return $bckresult;
+        }
+        return ["message" => "Unable to retrieve logs"];
+    }
+
+    /**
      * run a manual check
      */
     public function checkAction()

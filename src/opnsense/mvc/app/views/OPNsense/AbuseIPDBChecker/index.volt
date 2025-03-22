@@ -80,6 +80,76 @@
                 }
             };
             
+            // Load statistics
+            function loadStats() {
+                ajaxCall(url="/api/abuseipdbchecker/service/stats", sendData={}, callback=function(data) {
+                    if (data && data.status === 'ok') {
+                        $("#total-ips-checked").text(data.total_ips || 0);
+                        $("#total-threats").text(data.total_threats || 0);
+                        $("#checks-today").text(data.daily_checks || 0);
+                        $("#last-run").text(data.last_check || 'Never');
+                    }
+                });
+            }
+
+            // Load recent threats
+            function loadThreats() {
+                ajaxCall(url="/api/abuseipdbchecker/service/threats", sendData={}, callback=function(data) {
+                    if (data && data.status === 'ok' && data.threats) {
+                        var threatTable = $("#recent-threats-table");
+                        threatTable.empty();
+                        
+                        if (data.threats.length === 0) {
+                            threatTable.append('<tr><td colspan="5">No threats detected</td></tr>');
+                        } else {
+                            $.each(data.threats, function(i, threat) {
+                                var row = $('<tr>');
+                                row.append($('<td>').text(threat.ip));
+                                row.append($('<td>').text(threat.score + '%'));
+                                row.append($('<td>').text(threat.last_seen));
+                                row.append($('<td>').text(threat.country));
+                                row.append($('<td>').html('<a href="https://www.abuseipdb.com/check/' + threat.ip + '" target="_blank">View</a>'));
+                                threatTable.append(row);
+                            });
+                        }
+                    }
+                });
+            }
+
+            // Load logs (this will need a backend function implementation)
+            function loadLogs() {
+                ajaxCall(url="/api/abuseipdbchecker/service/logs", sendData={}, callback=function(data) {
+                    if (data && data.status === 'ok' && data.logs) {
+                        $("#log-content").text(data.logs.join(''));
+                    } else {
+                        $("#log-content").text("No logs available or error retrieving logs");
+                    }
+                });
+            }
+
+            // Initial load
+            loadStats();
+            loadThreats();
+            loadLogs();
+
+            // Add tab change event to refresh data
+            $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+                var target = $(e.target).attr("href");
+                if (target === "#stats") {
+                    loadStats();
+                } else if (target === "#threats") {
+                    loadThreats();
+                } else if (target === "#logs") {
+                    loadLogs();
+                }
+            });
+
+            // Add refresh button handler
+            $("#refreshLogsBtn").click(function() {
+                loadLogs();
+            });
+
+
             // Send AJAX request
             ajaxCall(
                 url="/api/abuseipdbchecker/settings/set",
@@ -92,6 +162,7 @@
                     }
                 }
             );
+            
         });
     });
 </script>

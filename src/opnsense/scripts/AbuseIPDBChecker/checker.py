@@ -53,6 +53,23 @@ MODE_CHECK = 'check'
 MODE_STATS = 'stats'
 MODE_THREATS = 'threats'
 
+def log_message(message):
+    """Log a message to the log file"""
+    log_dir = '/var/log/abuseipdbchecker'
+    log_file = os.path.join(log_dir, 'abuseipdb.log')
+    
+    try:
+        # Create log directory if it doesn't exist
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir, mode=0o750)
+        
+        # Append message to log file
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        with open(log_file, 'a') as f:
+            f.write(f"[{timestamp}] {message}\n")
+    except Exception as e:
+        print(f"Error writing to log: {str(e)}", file=sys.stderr)
+
 def read_config():
     """Read configuration from OPNsense config file"""
     config = {
@@ -525,10 +542,40 @@ def get_recent_threats():
     except Exception as e:
         return {'status': 'error', 'message': f'Error retrieving threats: {str(e)}'}
 
+def get_logs():
+    """Get the recent logs from the process"""
+    log_dir = '/var/log/abuseipdbchecker'
+    log_file = os.path.join(log_dir, 'abuseipdb.log')
+    
+    try:
+        # Create log directory if it doesn't exist
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir, mode=0o750)
+            
+        # If log file doesn't exist yet, create it
+        if not os.path.exists(log_file):
+            with open(log_file, 'w') as f:
+                f.write("AbuseIPDB Checker logs will appear here\n")
+            os.chmod(log_file, 0o640)
+        
+        # Read last 100 lines from log file
+        lines = []
+        with open(log_file, 'r') as f:
+            lines = f.readlines()
+            lines = lines[-100:] if len(lines) > 100 else lines
+        
+        return {
+            'status': 'ok',
+            'logs': lines
+        }
+    
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error retrieving logs: {str(e)}'}
+
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
-    parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS], help='Operation mode')
+    parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs'], help='Operation mode')
     args = parser.parse_args()
     
     if args.mode == MODE_CHECK:
@@ -538,6 +585,8 @@ def main():
         result = get_statistics()
     elif args.mode == MODE_THREATS:
         result = get_recent_threats()
+    elif args.mode == 'logs':
+        result = get_logs()
     
     print(json.dumps(result))
 
