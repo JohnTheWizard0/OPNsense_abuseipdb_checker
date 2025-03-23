@@ -1,0 +1,4 @@
+pkg delete -y os-abuseipdbchecker-devel
+make package
+pkg add work/pkg/*.pkg
+/usr/local/etc/rc.restart_webgui

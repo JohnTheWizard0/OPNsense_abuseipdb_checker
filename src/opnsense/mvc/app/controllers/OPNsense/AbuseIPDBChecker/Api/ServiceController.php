@@ -175,14 +175,44 @@ class ServiceController extends ApiMutableServiceControllerBase
             return ["status" => "failed", "message" => "Invalid IP address format"];
         }
         
+        // Create log directory first to ensure permissions
+        $logDir = '/var/log/abuseipdbchecker';
+        if (!file_exists($logDir)) {
+            @mkdir($logDir, 0755, true);
+            @chmod($logDir, 0755);
+        }
+        
+        // Initialize database if needed
+        $dbDir = '/var/db/abuseipdbchecker';
+        if (!file_exists($dbDir)) {
+            @mkdir($dbDir, 0755, true);
+            @chmod($dbDir, 0755);
+        }
+        
+        $dbFile = $dbDir . '/abuseipdb.db';
+        if (!file_exists($dbFile)) {
+            $backend = new Backend();
+            $backend->configdRun("abuseipdbchecker initdb");
+        }
+        
         $backend = new Backend();
         $response = $backend->configdRun("abuseipdbchecker testip {$ip}");
+        
+        // Check for empty response
+        if (empty($response)) {
+            // Log error to system log
+            syslog(LOG_ERR, "AbuseIPDBChecker: Empty response from testip command for IP: {$ip}");
+            return ["status" => "failed", "message" => "No response from backend. Check script permissions and logs."];
+        }
+        
         $bckresult = json_decode(trim($response), true);
         if ($bckresult !== null) {
             return $bckresult;
         }
         
-        return ["status" => "failed", "message" => "Unable to test IP address"];
+        // If we can't parse the JSON, log the actual response for debugging
+        syslog(LOG_ERR, "AbuseIPDBChecker: Invalid JSON response: " . substr($response, 0, 200));
+        return ["status" => "failed", "message" => "Unable to parse backend response. See system logs."];
     }
 
     protected function reconfigureForceRestart()

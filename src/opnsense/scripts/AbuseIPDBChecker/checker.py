@@ -28,30 +28,81 @@
     --------------------------------------------------------------------------------------
     AbuseIPDB Checker Script - Checks IPs against AbuseIPDB
 """
-import os
-import sys
-import time
-import json
-import sqlite3
-import ipaddress
-import re
-import requests
-import smtplib
-import argparse
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timedelta
-from configparser import ConfigParser
+# Make sure all imports are at the top, with error handling
+try:
+    import os
+    import sys
+    import time
+    import json
+    import sqlite3
+    import ipaddress
+    import re
+    import smtplib
+    import argparse
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    from datetime import datetime, timedelta
+    from configparser import ConfigParser
+    
+    # Check for requests package
+    try:
+        import requests
+    except ImportError:
+        print("Error: Python requests package not installed", file=sys.stderr)
+        print('{"status": "error", "message": "Python requests package not installed. Run: pkg install py39-requests"}')
+        sys.exit(1)
+        
+except ImportError as e:
+    # Handle import errors gracefully
+    print(f"Error importing required modules: {str(e)}", file=sys.stderr)
+    print(f'{{"status": "error", "message": "Missing required Python module: {str(e)}"}}')
+    sys.exit(1)
 
 # Constants
 DB_DIR = '/var/db/abuseipdbchecker'
 DB_FILE = os.path.join(DB_DIR, 'abuseipdb.db')
 CONFIG_FILE = '/usr/local/etc/abuseipdbchecker/abuseipdbchecker.conf'
+LOG_DIR = '/var/log/abuseipdbchecker'
+LOG_FILE = os.path.join(LOG_DIR, 'abuseipdb.log')
 
 # Command modes
 MODE_CHECK = 'check'
 MODE_STATS = 'stats'
 MODE_THREATS = 'threats'
+
+def ensure_directories():
+    """Ensure all required directories exist with correct permissions"""
+    dirs = [
+        (DB_DIR, 0o755),
+        (LOG_DIR, 0o755),
+        (os.path.dirname(CONFIG_FILE), 0o755)
+    ]
+    
+    for directory, mode in dirs:
+        if not os.path.exists(directory):
+            try:
+                os.makedirs(directory, mode=mode)
+                print(f"Created directory: {directory}", file=sys.stderr)
+                
+                # Try to set ownership to www user (for web server access)
+                try:
+                    import subprocess
+                    subprocess.run(['chown', '-R', 'www:www', directory], check=False)
+                except Exception as e:
+                    print(f"Note: Could not set ownership for {directory}: {str(e)}", file=sys.stderr)
+            except Exception as e:
+                print(f"Error creating directory {directory}: {str(e)}", file=sys.stderr)
+                # Continue anyway - we'll handle errors at the point of file access
+
+def system_log(message, priority=5):
+    """Log to system log as fallback"""
+    try:
+        import syslog
+        syslog.openlog("abuseipdbchecker")
+        syslog.syslog(priority, message)
+        syslog.closelog()
+    except Exception as e:
+        print(f"Error writing to syslog: {str(e)}", file=sys.stderr)
 
 def log_message(message):
     """Log a message to the log file"""
@@ -61,14 +112,45 @@ def log_message(message):
     try:
         # Create log directory if it doesn't exist
         if not os.path.exists(log_dir):
-            os.makedirs(log_dir, mode=0o750)
+            try:
+                os.makedirs(log_dir, mode=0o755)  # More permissive mode for directory
+                # Try to set ownership to www user (web server)
+                try:
+                    import subprocess
+                    subprocess.run(['chown', '-R', 'www:www', log_dir], check=False)
+                except Exception as e:
+                    print(f"Error setting log directory ownership: {str(e)}", file=sys.stderr)
+            except Exception as e:
+                print(f"Error creating log directory: {str(e)}", file=sys.stderr)
+                return
         
         # Append message to log file
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         with open(log_file, 'a') as f:
             f.write(f"[{timestamp}] {message}\n")
+        
+        # Make sure log file has permissive permissions
+        try:
+            os.chmod(log_file, 0o666)  # Make world-readable and writable
+            try:
+                import subprocess
+                subprocess.run(['chown', 'www:www', log_file], check=False)
+            except Exception as e:
+                print(f"Error setting log file ownership: {str(e)}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error setting log file permissions: {str(e)}", file=sys.stderr)
+    
     except Exception as e:
         print(f"Error writing to log: {str(e)}", file=sys.stderr)
+        # Try to write to system log as fallback
+        try:
+            import syslog
+            syslog.openlog("abuseipdbchecker")
+            syslog.syslog(syslog.LOG_ERR, f"Error writing to log file: {str(e)}")
+            syslog.syslog(syslog.LOG_NOTICE, f"Original message: {message}")
+            syslog.closelog()
+        except Exception:
+            pass  # Last resort, if even syslog fails, just silently continue
 
 def read_config():
     """Read configuration from OPNsense config file"""
@@ -219,6 +301,7 @@ def parse_log_for_ips(config):
 def check_ip_abuseipdb(ip, config):
     """Check an IP against AbuseIPDB API"""
     if not config['api_key']:
+        log_message("API key not configured")
         return None
         
     headers = {
@@ -232,20 +315,38 @@ def check_ip_abuseipdb(ip, config):
     }
     
     try:
+        # Log API request for debugging
+        log_message(f"Sending API request to {config['api_endpoint']} for IP {ip}")
+        
         response = requests.get(
             config['api_endpoint'], 
             headers=headers, 
-            params=params
+            params=params,
+            timeout=10  # Add timeout to prevent hanging
         )
         
+        # Log API response status code
+        log_message(f"API response status code: {response.status_code}")
+        
         if response.status_code == 200:
-            return response.json().get('data', {})
+            data = response.json()
+            log_message(f"API response received: {data.get('data', {}).get('abuseConfidenceScore')}% confidence score")
+            return data.get('data', {})
+        elif response.status_code == 401:
+            log_message(f"API error: Authentication failed - invalid API key")
+            raise Exception("Authentication failed - invalid API key")
+        elif response.status_code == 429:
+            log_message(f"API error: Rate limit exceeded")
+            raise Exception("Rate limit exceeded - please try again later")
         else:
-            print(f"API error: {response.status_code} - {response.text}", file=sys.stderr)
-            return None
+            log_message(f"API error: {response.status_code} - {response.text}")
+            raise Exception(f"API error: {response.status_code} - {response.text}")
+    except requests.exceptions.RequestException as e:
+        log_message(f"Connection error: {str(e)}")
+        raise Exception(f"Connection error: {str(e)}")
     except Exception as e:
-        print(f"Error checking IP {ip}: {str(e)}", file=sys.stderr)
-        return None
+        log_message(f"Error checking IP {ip}: {str(e)}")
+        raise Exception(f"Error checking IP: {str(e)}")
 
 def send_email_notification(threat_ip, report, config):
     """Send email notification about detected threat"""
@@ -559,76 +660,125 @@ def get_logs():
         # Create log directory if it doesn't exist
         if not os.path.exists(log_dir):
             try:
-                os.makedirs(log_dir, mode=0o750)
+                os.makedirs(log_dir, mode=0o755)
+                # Try to set ownership to www user
+                try:
+                    import subprocess
+                    subprocess.run(['chown', '-R', 'www:www', log_dir], check=False)
+                except Exception as e:
+                    print(f"Error setting log directory ownership: {str(e)}", file=sys.stderr)
             except (OSError, PermissionError) as e:
-                return {'status': 'error', 'message': f'Error creating log directory: {str(e)}'}
+                return {'status': 'error', 'message': f'Error creating log directory: {str(e)}. Check permissions.'}
             
-        # If log file doesn't exist yet, create it
+        # If log file doesn't exist yet, create it with initial content
         if not os.path.exists(log_file):
             try:
                 with open(log_file, 'w') as f:
-                    f.write("AbuseIPDB Checker logs will appear here\n")
-                os.chmod(log_file, 0o640)
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    f.write(f"[{timestamp}] AbuseIPDB Checker logs initialized\n")
+                # Make sure log file has permissive permissions
+                os.chmod(log_file, 0o666)  # Make world-readable and writable
+                try:
+                    import subprocess
+                    subprocess.run(['chown', 'www:www', log_file], check=False)
+                except Exception as e:
+                    print(f"Error setting log file ownership: {str(e)}", file=sys.stderr)
             except (IOError, PermissionError) as e:
-                return {'status': 'error', 'message': f'Error creating log file: {str(e)}'}
+                return {'status': 'error', 'message': f'Error creating log file: {str(e)}. Check permissions.'}
         
-        # Read last 100 lines from log file
+        # Read log file contents
         try:
             with open(log_file, 'r') as f:
-                # Using a more memory-efficient way to read the last N lines
-                lines = []
-                try:
-                    # Get file size
-                    f.seek(0, os.SEEK_END)
-                    file_size = f.tell()
+                # Just read the entire file if it exists - simpler approach to avoid issues
+                content = f.read()
+                if not content.strip():
+                    return {'status': 'ok', 'logs': ['No log entries yet. Run a check or test an IP.']}
                     
-                    # If file is small, just read it all
-                    if file_size < 100000:  # 100KB
-                        f.seek(0)
-                        lines = f.readlines()
-                    else:
-                        # For large files, read the last 50KB
-                        f.seek(max(0, file_size - 50000))
-                        # Discard first partial line
-                        f.readline()
-                        # Read the rest
-                        lines = f.readlines()
-                except Exception as e:
-                    return {'status': 'error', 'message': f'Error reading log file: {str(e)}'}
-                
-                # Take last 100 lines
+                # Split by lines and return the last 100 lines
+                lines = content.splitlines()
                 lines = lines[-100:] if len(lines) > 100 else lines
-        except IOError as e:
-            return {'status': 'error', 'message': f'Error reading log file: {str(e)}'}
+                return {'status': 'ok', 'logs': lines}
+        except (IOError, PermissionError) as e:
+            return {'status': 'error', 'message': f'Error reading log file: {str(e)}. Check permissions.'}
         
-        return {
-            'status': 'ok',
-            'logs': lines
-        }
-    
     except Exception as e:
-        log_message(f"Error retrieving logs: {str(e)}")
-        return {'status': 'error', 'message': f'Error retrieving logs: {str(e)}'}
-    
+        print(f"Error retrieving logs: {str(e)}", file=sys.stderr)
+        return {'status': 'error', 
+                'message': f'Error retrieving logs: {str(e)}. Try: chmod -R 755 /var/log/abuseipdbchecker'}
 
 def test_ip(ip_address):
     """Test a single IP against AbuseIPDB"""
+    log_message(f"Starting test of IP: {ip_address}")
+    
     if not os.path.exists(DB_FILE):
-        return {'status': 'error', 'message': 'Database not initialized. Please run setup_database.py first.'}
+        log_message("Database file not found")
+        # Try to initialize the database
+        try:
+            log_message("Attempting to initialize database")
+            db_dir = os.path.dirname(DB_FILE)
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, mode=0o755)
+            # Create a minimal db structure
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute('''
+            CREATE TABLE IF NOT EXISTS checked_ips (
+                ip TEXT PRIMARY KEY,
+                first_seen TEXT,
+                last_checked TEXT,
+                check_count INTEGER,
+                is_threat INTEGER DEFAULT 0
+            )
+            ''')
+            c.execute('''
+            CREATE TABLE IF NOT EXISTS threats (
+                ip TEXT PRIMARY KEY,
+                abuse_score INTEGER,
+                reports INTEGER,
+                last_seen TEXT,
+                categories TEXT,
+                country TEXT,
+                FOREIGN KEY (ip) REFERENCES checked_ips(ip)
+            )
+            ''')
+            c.execute('''
+            CREATE TABLE IF NOT EXISTS stats (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            ''')
+            c.execute('INSERT OR IGNORE INTO stats (key, value) VALUES (?, ?)', ('last_check', 'Never'))
+            c.execute('INSERT OR IGNORE INTO stats (key, value) VALUES (?, ?)', ('daily_checks', '0'))
+            c.execute('INSERT OR IGNORE INTO stats (key, value) VALUES (?, ?)', ('total_checks', '0'))
+            c.execute('INSERT OR IGNORE INTO stats (key, value) VALUES (?, ?)', ('last_reset', ''))
+            conn.commit()
+            conn.close()
+            log_message("Successfully initialized database")
+        except Exception as e:
+            log_message(f"Failed to initialize database: {str(e)}")
+            return {'status': 'error', 'message': f'Database not initialized and auto-init failed: {str(e)}'}
     
     # Validate IP address format
     try:
         ipaddress.ip_address(ip_address)
     except ValueError:
+        log_message(f"Invalid IP address: {ip_address}")
         return {'status': 'error', 'message': f'Invalid IP address format: {ip_address}'}
     
     config = read_config()
+    log_message(f"Config loaded, enabled: {config['enabled']}, API key set: {'Yes' if config['api_key'] else 'No'}")
     
     if not config['enabled']:
-        return {'status': 'disabled', 'message': 'AbuseIPDBChecker is disabled'}
+        log_message("AbuseIPDBChecker is disabled in settings")
+        return {'status': 'error', 'message': 'AbuseIPDBChecker is disabled in settings. Enable it in the General tab.'}
     
     if not config['api_key']:
-        return {'status': 'error', 'message': 'API key not configured'}
+        log_message("API key not configured")
+        return {'status': 'error', 'message': 'API key not configured. Add your API key in the API tab.'}
+    
+    if config['api_key'] == 'YOUR_API_KEY':
+        log_message("Default API key is being used")
+        return {'status': 'error', 'message': 'Please configure a valid API key in the API tab. The default placeholder key cannot be used.'}
     
     conn = None
     try:
@@ -636,11 +786,19 @@ def test_ip(ip_address):
         conn.row_factory = sqlite3.Row
         
         # Check IP against AbuseIPDB
-        log_message(f"Testing IP: {ip_address}")
-        report = check_ip_abuseipdb(ip_address, config)
+        log_message(f"Checking IP {ip_address} with AbuseIPDB API")
+        
+        try:
+            report = check_ip_abuseipdb(ip_address, config)
+        except Exception as e:
+            log_message(f"API request failed: {str(e)}")
+            return {'status': 'error', 'message': f'API request failed: {str(e)}. Check your internet connection and API key.'}
         
         if report is None:
-            return {'status': 'error', 'message': 'Error checking IP with AbuseIPDB API'}
+            log_message("API returned no data")
+            return {'status': 'error', 'message': 'Error checking IP with AbuseIPDB API. The API returned no data.'}
+        
+        log_message(f"API response received for {ip_address}")
         
         c = conn.cursor()
         check_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -691,7 +849,10 @@ def test_ip(ip_address):
                 )
             
             # Send email notification if enabled
-            send_email_notification(ip_address, report, config)
+            try:
+                send_email_notification(ip_address, report, config)
+            except Exception as e:
+                log_message(f"Failed to send email notification: {str(e)}")
         else:
             log_message(f"Clean IP tested: {ip_address} (Score: {abuse_score})")
         
@@ -717,6 +878,7 @@ def test_ip(ip_address):
             'last_reported': report.get('lastReportedAt', 'Never')
         }
         
+        log_message(f"Test completed for {ip_address}: {'Threat' if is_threat else 'Clean'} (Score: {abuse_score})")
         return result
         
     except Exception as e:
@@ -728,27 +890,80 @@ def test_ip(ip_address):
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
-    parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip'], help='Operation mode')
-    parser.add_argument('ip', nargs='?', help='IP address to test (only for testip mode)')
-    args = parser.parse_args()
+    # First thing: log startup and ensure directories
+    startup_message = "AbuseIPDBChecker script startup"
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {startup_message}", file=sys.stderr)
+    system_log(startup_message)
     
-    if args.mode == MODE_CHECK:
-        config = read_config()
-        result = run_checker(config)
-    elif args.mode == MODE_STATS:
-        result = get_statistics()
-    elif args.mode == MODE_THREATS:
-        result = get_recent_threats()
-    elif args.mode == 'logs':
-        result = get_logs()
-    elif args.mode == 'testip':
-        if not args.ip:
-            result = {'status': 'error', 'message': 'IP address is required for testip mode'}
+    try:
+        # Make sure required directories exist
+        ensure_directories()
+        
+        # Now that directories exist, we can log properly
+        log_message("Script started successfully")
+        
+        # Parse command line arguments
+        parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
+        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip'], 
+                           help='Operation mode')
+        parser.add_argument('ip', nargs='?', help='IP address to test (only for testip mode)')
+        
+        # Handle no arguments case - avoid crash
+        if len(sys.argv) < 2:
+            parser.print_help()
+            log_message("Error: No operation mode specified")
+            print(json.dumps({'status': 'error', 'message': 'No operation mode specified'}))
+            return
+            
+        args = parser.parse_args()
+        log_message(f"Running in {args.mode} mode")
+        
+        # Different actions based on mode
+        if args.mode == MODE_CHECK:
+            log_message("Starting IP check operation")
+            config = read_config()
+            result = run_checker(config)
+        elif args.mode == MODE_STATS:
+            log_message("Retrieving statistics")
+            result = get_statistics()
+        elif args.mode == MODE_THREATS:
+            log_message("Retrieving threats list")
+            result = get_recent_threats()
+        elif args.mode == 'logs':
+            log_message("Retrieving logs")
+            result = get_logs()
+        elif args.mode == 'testip':
+            if not args.ip:
+                log_message("Error: No IP specified for test")
+                result = {'status': 'error', 'message': 'IP address is required for testip mode'}
+            else:
+                log_message(f"Testing IP: {args.ip}")
+                result = test_ip(args.ip)
         else:
-            result = test_ip(args.ip)
-    
-    print(json.dumps(result))
+            # Should never get here due to argparse, but just in case
+            log_message(f"Invalid mode: {args.mode}")
+            result = {'status': 'error', 'message': f'Invalid mode: {args.mode}'}
+        
+        # Output result as JSON
+        output = json.dumps(result)
+        print(output)
+        log_message(f"Operation completed with status: {result.get('status', 'unknown')}")
+        
+    except Exception as e:
+        error_msg = f"Unhandled exception in main: {str(e)}"
+        system_log(error_msg)
+        
+        # Try to log to file even if it failed earlier
+        try:
+            log_message(error_msg)
+        except:
+            pass
+            
+        # Print JSON error for the UI to display
+        print(json.dumps({'status': 'error', 'message': error_msg}))
+        
+        # Print error to stderr for daemon logs
+        print(error_msg, file=sys.stderr)
 
 if __name__ == '__main__':
     main()
