@@ -715,69 +715,6 @@ def test_ip(ip_address):
     """Test a single IP against AbuseIPDB"""
     log_message(f"Starting test of IP: {ip_address}")
     
-    # Check if script has been called correctly
-    try:
-        log_message(f"Python executable: {sys.executable}")
-        log_message(f"Script path: {os.path.abspath(__file__)}")
-        log_message(f"Current working directory: {os.getcwd()}")
-    except Exception as e:
-        log_message(f"Error getting script info: {str(e)}")
-    
-    # Create log directory if it doesn't exist
-    log_dir = '/var/log/abuseipdbchecker'
-    if not os.path.exists(log_dir):
-        try:
-            os.makedirs(log_dir, mode=0o755)
-            log_message(f"Created log directory: {log_dir}")
-        except Exception as e:
-            log_message(f"Error creating log directory: {str(e)}")
-        # Try to initialize the database
-        try:
-            log_message("Attempting to initialize database")
-            db_dir = os.path.dirname(DB_FILE)
-            if not os.path.exists(db_dir):
-                os.makedirs(db_dir, mode=0o755)
-                
-            # Create a minimal db structure
-            conn = sqlite3.connect(DB_FILE)
-            c = conn.cursor()
-            c.execute('''
-            CREATE TABLE IF NOT EXISTS checked_ips (
-                ip TEXT PRIMARY KEY,
-                first_seen TEXT,
-                last_checked TEXT,
-                check_count INTEGER,
-                is_threat INTEGER DEFAULT 0
-            )
-            ''')
-            c.execute('''
-            CREATE TABLE IF NOT EXISTS threats (
-                ip TEXT PRIMARY KEY,
-                abuse_score INTEGER,
-                reports INTEGER,
-                last_seen TEXT,
-                categories TEXT,
-                country TEXT,
-                FOREIGN KEY (ip) REFERENCES checked_ips(ip)
-            )
-            ''')
-            c.execute('''
-            CREATE TABLE IF NOT EXISTS stats (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-            ''')
-            c.execute('INSERT OR IGNORE INTO stats (key, value) VALUES (?, ?)', ('last_check', 'Never'))
-            c.execute('INSERT OR IGNORE INTO stats (key, value) VALUES (?, ?)', ('daily_checks', '0'))
-            c.execute('INSERT OR IGNORE INTO stats (key, value) VALUES (?, ?)', ('total_checks', '0'))
-            c.execute('INSERT OR IGNORE INTO stats (key, value) VALUES (?, ?)', ('last_reset', ''))
-            conn.commit()
-            conn.close()
-            log_message("Successfully initialized database")
-        except Exception as e:
-            log_message(f"Failed to initialize database: {str(e)}")
-            return {'status': 'error', 'message': f'Database not initialized and auto-init failed: {str(e)}'}
-    
     # Validate IP address format
     try:
         ipaddress.ip_address(ip_address)
@@ -885,23 +822,23 @@ def test_ip(ip_address):
         # Update last check time
         update_db_stats(conn, 'last_check', check_date)
         
-        # Prepare result
+        # Prepare result - ensure all values are strings to avoid JSON encoding issues
         result = {
             "status": "ok",
             "ip": ip_address,
             "is_threat": is_threat,
             "abuse_score": abuse_score,
-            "country": report.get("countryCode", "Unknown"),
-            "isp": report.get("isp", "Unknown"),
-            "domain": report.get("domain", "Unknown"),
+            "country": str(report.get("countryCode", "Unknown")),
+            "isp": str(report.get("isp", "Unknown")),
+            "domain": str(report.get("domain", "Unknown")),
             "reports": report.get("totalReports", 0),
-            "last_reported": report.get("lastReportedAt", "Never")
+            "last_reported": str(report.get("lastReportedAt", "Never"))
         }
         
         # Ensure clean JSON output
         log_message(f"Test completed for {ip_address}: {'Threat' if is_threat else 'Clean'} (Score: {abuse_score})")
         
-        # Double-check that all values in the result are JSON-serializable
+        # Convert any None values to empty strings
         for key, value in result.items():
             if value is None:
                 result[key] = ""
@@ -909,8 +846,8 @@ def test_ip(ip_address):
         return result
         
     except Exception as e:
-        log_message(f"Error formatting test result for {ip_address}: {str(e)}")
-        return {"status": "error", "message": f"Error formatting result: {str(e)}"}
+        log_message(f"Error in test_ip function for {ip_address}: {str(e)}")
+        return {"status": "error", "message": f"Error processing request: {str(e)}"}
     
     finally:
         if conn:
@@ -972,8 +909,8 @@ def main():
             log_message(f"Invalid mode: {args.mode}")
             result = {'status': 'error', 'message': f'Invalid mode: {args.mode}'}
         
-        # Output result as JSON
-        output = json.dumps(result)
+        # Output result as JSON with no extra whitespace
+        output = json.dumps(result, separators=(',', ':'))
         print(output)
         log_message(f"Operation completed with status: {result.get('status', 'unknown')}")
         
@@ -988,7 +925,7 @@ def main():
             pass
             
         # Print JSON error for the UI to display
-        print(json.dumps({'status': 'error', 'message': error_msg}))
+        print(json.dumps({'status': 'error', 'message': error_msg}, separators=(',', ':')))
         
         # Print error to stderr for daemon logs
         print(error_msg, file=sys.stderr)

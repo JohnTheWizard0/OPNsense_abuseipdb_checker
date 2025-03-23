@@ -1,0 +1,72 @@
+[2025-03-23 20:27:59] Running in stats mode
+[2025-03-23 20:27:59] Running in logs mode
+[2025-03-23 20:27:59] Running in threats mode
+[2025-03-23 20:27:59] Retrieving statistics
+[2025-03-23 20:27:59] Retrieving logs
+[2025-03-23 20:27:59] Operation completed with status: ok
+[2025-03-23 20:27:59] Operation completed with status: ok
+[2025-03-23 20:27:59] Retrieving threats list
+[2025-03-23 20:27:59] Running in logs mode
+[2025-03-23 20:27:59] Running in stats mode
+[2025-03-23 20:27:59] Operation completed with status: ok
+[2025-03-23 20:27:59] Retrieving logs
+[2025-03-23 20:27:59] Retrieving statistics
+[2025-03-23 20:27:59] Running in threats mode
+[2025-03-23 20:27:59] Operation completed with status: ok
+[2025-03-23 20:27:59] Operation completed with status: ok
+[2025-03-23 20:27:59] Retrieving threats list
+[2025-03-23 20:27:59] Operation completed with status: ok
+[2025-03-23 20:28:00] Running in logs mode
+[2025-03-23 20:28:00] Retrieving logs
+[2025-03-23 20:28:00] Operation completed with status: ok
+[2025-03-23 20:28:00] Running in logs mode
+[2025-03-23 20:28:00] Retrieving logs
+[2025-03-23 20:28:00] Operation completed with status: ok
+[2025-03-23 20:28:01] Running in logs mode
+[2025-03-23 20:28:01] Retrieving logs
+[2025-03-23 20:28:01] Operation completed with status: ok
+[2025-03-23 20:28:01] Running in logs mode
+[2025-03-23 20:28:01] Retrieving logs
+[2025-03-23 20:28:01] Operation completed with status: ok
+[2025-03-23 20:28:01] Running in logs mode
+[2025-03-23 20:28:01] Retrieving logs
+[2025-03-23 20:28:01] Operation completed with status: ok
+[2025-03-23 20:28:01] Running in logs mode
+[2025-03-23 20:28:01] Retrieving logs
+[2025-03-23 20:28:01] Operation completed with status: ok
+[2025-03-23 20:28:11] Running in testip mode
+[2025-03-23 20:28:11] Testing IP: 118.76.192.54
+[2025-03-23 20:28:11] Starting test of IP: 118.76.192.54
+[2025-03-23 20:28:11] Config loaded, enabled: False, API key set: No
+[2025-03-23 20:28:11] AbuseIPDBChecker is disabled in settings
+[2025-03-23 20:28:11] Operation completed with status: error
+[2025-03-23 20:28:11] Running in testip mode
+[2025-03-23 20:28:11] Testing IP: 118.76.192.54
+[2025-03-23 20:28:11] Starting test of IP: 118.76.192.54
+[2025-03-23 20:28:11] Config loaded, enabled: False, API key set: No
+[2025-03-23 20:28:11] AbuseIPDBChecker is disabled in settings
+[2025-03-23 20:28:11] Operation completed with status: error
+[2025-03-23 20:28:12] Running in logs mode
+[2025-03-23 20:28:12] Running in stats mode
+[2025-03-23 20:28:12] Retrieving logs
+[2025-03-23 20:28:12] Retrieving statistics
+[2025-03-23 20:28:12] Running in threats mode
+[2025-03-23 20:28:12] Operation completed with status: ok
+[2025-03-23 20:28:12] Operation completed with status: ok
+[2025-03-23 20:28:12] Retrieving threats list
+[2025-03-23 20:28:12] Running in logs mode
+[2025-03-23 20:28:12] Running in stats mode
+[2025-03-23 20:28:12] Operation completed with status: ok
+[2025-03-23 20:28:12] Retrieving logs
+[2025-03-23 20:28:12] Retrieving statistics
+[2025-03-23 20:28:12] Operation completed with status: ok
+[2025-03-23 20:28:12] Running in threats mode
+[2025-03-23 20:28:12] Operation completed with status: ok
+[2025-03-23 20:28:12] Retrieving threats list
+[2025-03-23 20:28:12] Operation completed with status: ok
+[2025-03-23 20:28:17] Running in logs mode
+[2025-03-23 20:28:17] Retrieving logs
+[2025-03-23 20:28:17] Operation completed with status: ok
+[2025-03-23 20:28:17] Running in logs mode
+[2025-03-23 20:28:17] Retrieving logs
+[2025-03-23 20:28:17] Operation completed with status: ok
