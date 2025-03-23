@@ -28,7 +28,6 @@ function abuseipdbchecker_services() {
     
     return $services;
 }
-
 // Add configure function for bootup integration
 function abuseipdbchecker_configure() {
     return array(

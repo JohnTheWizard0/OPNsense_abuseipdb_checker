@@ -28,7 +28,9 @@ abuseipdbchecker_start()
         # Run post-install script to ensure correct permissions
         if [ -f /usr/local/opnsense/scripts/AbuseIPDBChecker/post_install.sh ]; then
             /usr/local/opnsense/scripts/AbuseIPDBChecker/post_install.sh
+            touch /root/FLAG1
         fi
+        touch /root/FLAG2
         
         # Initialize database if it doesn't exist
         if [ ! -f /var/db/abuseipdbchecker/abuseipdb.db ]; then
