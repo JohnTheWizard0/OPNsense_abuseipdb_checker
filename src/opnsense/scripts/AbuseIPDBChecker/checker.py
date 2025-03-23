@@ -464,6 +464,7 @@ def get_statistics():
     if not os.path.exists(DB_FILE):
         return {'status': 'error', 'message': 'Database not initialized'}
     
+    conn = None
     try:
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
@@ -477,18 +478,18 @@ def get_statistics():
         c.execute('SELECT COUNT(*) as count FROM threats')
         total_threats = c.fetchone()['count']
         
-        # Get last check time
+        # Get last check time with fallback
         c.execute('SELECT value FROM stats WHERE key = ?', ('last_check',))
-        last_check = c.fetchone()['value']
+        row = c.fetchone()
+        last_check = row['value'] if row else 'Never'
         
-        # Get daily checks and limit
+        # Get daily checks with fallback
         c.execute('SELECT value FROM stats WHERE key = ?', ('daily_checks',))
-        daily_checks = c.fetchone()['value']
+        row = c.fetchone()
+        daily_checks = row['value'] if row else '0'
         
         config = read_config()
         daily_limit = config['daily_check_limit']
-        
-        conn.close()
         
         return {
             'status': 'ok',
@@ -500,13 +501,18 @@ def get_statistics():
         }
     
     except Exception as e:
+        log_message(f"Error retrieving statistics: {str(e)}")
         return {'status': 'error', 'message': f'Error retrieving statistics: {str(e)}'}
+    finally:
+        if conn:
+            conn.close()
 
 def get_recent_threats():
     """Get the most recent threats from the database"""
     if not os.path.exists(DB_FILE):
         return {'status': 'error', 'message': 'Database not initialized'}
     
+    conn = None
     try:
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
@@ -532,15 +538,17 @@ def get_recent_threats():
                 'categories': row['categories']
             })
         
-        conn.close()
-        
         return {
             'status': 'ok',
             'threats': threats
         }
     
     except Exception as e:
+        log_message(f"Error retrieving threats: {str(e)}")
         return {'status': 'error', 'message': f'Error retrieving threats: {str(e)}'}
+    finally:
+        if conn:
+            conn.close()
 
 def get_logs():
     """Get the recent logs from the process"""
@@ -550,19 +558,48 @@ def get_logs():
     try:
         # Create log directory if it doesn't exist
         if not os.path.exists(log_dir):
-            os.makedirs(log_dir, mode=0o750)
+            try:
+                os.makedirs(log_dir, mode=0o750)
+            except (OSError, PermissionError) as e:
+                return {'status': 'error', 'message': f'Error creating log directory: {str(e)}'}
             
         # If log file doesn't exist yet, create it
         if not os.path.exists(log_file):
-            with open(log_file, 'w') as f:
-                f.write("AbuseIPDB Checker logs will appear here\n")
-            os.chmod(log_file, 0o640)
+            try:
+                with open(log_file, 'w') as f:
+                    f.write("AbuseIPDB Checker logs will appear here\n")
+                os.chmod(log_file, 0o640)
+            except (IOError, PermissionError) as e:
+                return {'status': 'error', 'message': f'Error creating log file: {str(e)}'}
         
         # Read last 100 lines from log file
-        lines = []
-        with open(log_file, 'r') as f:
-            lines = f.readlines()
-            lines = lines[-100:] if len(lines) > 100 else lines
+        try:
+            with open(log_file, 'r') as f:
+                # Using a more memory-efficient way to read the last N lines
+                lines = []
+                try:
+                    # Get file size
+                    f.seek(0, os.SEEK_END)
+                    file_size = f.tell()
+                    
+                    # If file is small, just read it all
+                    if file_size < 100000:  # 100KB
+                        f.seek(0)
+                        lines = f.readlines()
+                    else:
+                        # For large files, read the last 50KB
+                        f.seek(max(0, file_size - 50000))
+                        # Discard first partial line
+                        f.readline()
+                        # Read the rest
+                        lines = f.readlines()
+                except Exception as e:
+                    return {'status': 'error', 'message': f'Error reading log file: {str(e)}'}
+                
+                # Take last 100 lines
+                lines = lines[-100:] if len(lines) > 100 else lines
+        except IOError as e:
+            return {'status': 'error', 'message': f'Error reading log file: {str(e)}'}
         
         return {
             'status': 'ok',
@@ -570,12 +607,130 @@ def get_logs():
         }
     
     except Exception as e:
+        log_message(f"Error retrieving logs: {str(e)}")
         return {'status': 'error', 'message': f'Error retrieving logs: {str(e)}'}
+    
+
+def test_ip(ip_address):
+    """Test a single IP against AbuseIPDB"""
+    if not os.path.exists(DB_FILE):
+        return {'status': 'error', 'message': 'Database not initialized. Please run setup_database.py first.'}
+    
+    # Validate IP address format
+    try:
+        ipaddress.ip_address(ip_address)
+    except ValueError:
+        return {'status': 'error', 'message': f'Invalid IP address format: {ip_address}'}
+    
+    config = read_config()
+    
+    if not config['enabled']:
+        return {'status': 'disabled', 'message': 'AbuseIPDBChecker is disabled'}
+    
+    if not config['api_key']:
+        return {'status': 'error', 'message': 'API key not configured'}
+    
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        
+        # Check IP against AbuseIPDB
+        log_message(f"Testing IP: {ip_address}")
+        report = check_ip_abuseipdb(ip_address, config)
+        
+        if report is None:
+            return {'status': 'error', 'message': 'Error checking IP with AbuseIPDB API'}
+        
+        c = conn.cursor()
+        check_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        abuse_score = report.get('abuseConfidenceScore', 0)
+        is_threat = abuse_score >= config['abuse_score_threshold']
+        
+        # Update daily checks count
+        daily_checks = int(get_db_stats(conn, 'daily_checks') or '0')
+        update_db_stats(conn, 'daily_checks', str(daily_checks + 1))
+        
+        # Update or insert into checked_ips
+        c.execute('SELECT * FROM checked_ips WHERE ip = ?', (ip_address,))
+        existing = c.fetchone()
+        
+        if existing:
+            c.execute(
+                'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, is_threat = ? WHERE ip = ?',
+                (check_date, 1 if is_threat else 0, ip_address)
+            )
+        else:
+            c.execute(
+                'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, is_threat) VALUES (?, ?, ?, ?, ?)',
+                (ip_address, check_date, check_date, 1, 1 if is_threat else 0)
+            )
+        
+        # If it's a threat, update or insert into threats table
+        if is_threat:
+            log_message(f"Malicious IP found: {ip_address} (Score: {abuse_score})")
+            
+            # Get categories if available
+            categories = ''
+            if 'reports' in report and report['reports'] and len(report['reports']) > 0:
+                if 'categories' in report['reports'][0]:
+                    categories = ','.join(str(cat) for cat in report['reports'][0]['categories'])
+            
+            c.execute('SELECT * FROM threats WHERE ip = ?', (ip_address,))
+            if c.fetchone():
+                c.execute(
+                    'UPDATE threats SET abuse_score = ?, reports = ?, last_seen = ?, categories = ?, country = ? WHERE ip = ?',
+                    (abuse_score, report.get('totalReports', 0), report.get('lastReportedAt', ''), 
+                     categories, report.get('countryCode', ''), ip_address)
+                )
+            else:
+                c.execute(
+                    'INSERT INTO threats (ip, abuse_score, reports, last_seen, categories, country) VALUES (?, ?, ?, ?, ?, ?)',
+                    (ip_address, abuse_score, report.get('totalReports', 0), report.get('lastReportedAt', ''), 
+                     categories, report.get('countryCode', ''))
+                )
+            
+            # Send email notification if enabled
+            send_email_notification(ip_address, report, config)
+        else:
+            log_message(f"Clean IP tested: {ip_address} (Score: {abuse_score})")
+        
+        conn.commit()
+        
+        # Update total checks
+        total_checks = int(get_db_stats(conn, 'total_checks') or '0') + 1
+        update_db_stats(conn, 'total_checks', str(total_checks))
+        
+        # Update last check time
+        update_db_stats(conn, 'last_check', check_date)
+        
+        # Prepare result
+        result = {
+            'status': 'ok',
+            'ip': ip_address,
+            'is_threat': is_threat,
+            'abuse_score': abuse_score,
+            'country': report.get('countryCode', 'Unknown'),
+            'isp': report.get('isp', 'Unknown'),
+            'domain': report.get('domain', 'Unknown'),
+            'reports': report.get('totalReports', 0),
+            'last_reported': report.get('lastReportedAt', 'Never')
+        }
+        
+        return result
+        
+    except Exception as e:
+        log_message(f"Error testing IP {ip_address}: {str(e)}")
+        return {'status': 'error', 'message': f'Error testing IP: {str(e)}'}
+    finally:
+        if conn:
+            conn.close()
 
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
-    parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs'], help='Operation mode')
+    parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip'], help='Operation mode')
+    parser.add_argument('ip', nargs='?', help='IP address to test (only for testip mode)')
     args = parser.parse_args()
     
     if args.mode == MODE_CHECK:
@@ -587,6 +742,11 @@ def main():
         result = get_recent_threats()
     elif args.mode == 'logs':
         result = get_logs()
+    elif args.mode == 'testip':
+        if not args.ip:
+            result = {'status': 'error', 'message': 'IP address is required for testip mode'}
+        else:
+            result = test_ip(args.ip)
     
     print(json.dumps(result))
 

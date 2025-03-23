@@ -32,6 +32,7 @@ namespace OPNsense\AbuseIPDBChecker\Api;
 
 use OPNsense\Base\ApiMutableServiceControllerBase;
 use OPNsense\Core\Backend;
+use OPNsense\Core\Config;
 
 /**
  * Class ServiceController
@@ -41,7 +42,7 @@ class ServiceController extends ApiMutableServiceControllerBase
 {
     protected static $internalServiceClass = '\OPNsense\AbuseIPDBChecker\AbuseIPDBChecker';
     protected static $internalServiceTemplate = 'OPNsense/AbuseIPDBChecker';
-    protected static $internalServiceEnabled = 'general.enabled';
+    protected static $internalServiceEnabled = 'general.Enabled';
     protected static $internalServiceName = 'abuseipdbchecker';
 
     /**
@@ -55,9 +56,9 @@ class ServiceController extends ApiMutableServiceControllerBase
             
             // Check if model data exists in config
             $configObj = Config::getInstance()->object();
-            $modelPath = 'OPNsense.abuseipdbchecker';
+            $modelExists = isset($configObj->OPNsense) && isset($configObj->OPNsense->abuseipdbchecker);
             
-            if (!isset($configObj->OPNsense) || !isset($configObj->OPNsense->abuseipdbchecker)) {
+            if (!$modelExists) {
                 // Configuration doesn't exist yet, force create it
                 $model = new \OPNsense\AbuseIPDBChecker\AbuseIPDBChecker();
                 $model->general->Enabled = 1; // Force enable
@@ -75,6 +76,11 @@ class ServiceController extends ApiMutableServiceControllerBase
                 if (!file_exists('/usr/local/etc/abuseipdbchecker')) {
                     mkdir('/usr/local/etc/abuseipdbchecker', 0755, true);
                 }
+                
+                // Initialize database if it doesn't exist
+                if (!file_exists('/var/db/abuseipdbchecker/abuseipdb.db')) {
+                    $backend->configdRun('abuseipdbchecker initdb');
+                }
             }
         }
         return ["status" => $status];
@@ -86,26 +92,28 @@ class ServiceController extends ApiMutableServiceControllerBase
     public function logsAction()
     {
         $backend = new Backend();
-        $bckresult = json_decode(trim($backend->configdRun("abuseipdbchecker logs")), true);
+        $response = $backend->configdRun("abuseipdbchecker logs");
+        $bckresult = json_decode(trim($response), true);
         if ($bckresult !== null) {
             return $bckresult;
         }
-        return ["message" => "Unable to retrieve logs"];
+        return ["status" => "failed", "message" => "Unable to retrieve logs"];
     }
 
     /**
      * run a manual check
      */
-    public function checkAction()
+    public function runAction()
     {
         if ($this->request->isPost()) {
             $backend = new Backend();
-            $bckresult = json_decode(trim($backend->configdRun("abuseipdbchecker check")), true);
+            $response = $backend->configdRun("abuseipdbchecker run");
+            $bckresult = json_decode(trim($response), true);
             if ($bckresult !== null) {
                 return $bckresult;
             }
         }
-        return ["message" => "Unable to run manual check"];
+        return ["status" => "failed", "message" => "Unable to run manual check"];
     }
 
     /**
@@ -115,12 +123,13 @@ class ServiceController extends ApiMutableServiceControllerBase
     {
         if ($this->request->isPost()) {
             $backend = new Backend();
-            $bckresult = json_decode(trim($backend->configdRun("abuseipdbchecker initdb")), true);
+            $response = $backend->configdRun("abuseipdbchecker initdb");
+            $bckresult = json_decode(trim($response), true);
             if ($bckresult !== null) {
                 return $bckresult;
             }
         }
-        return ["message" => "Unable to initialize database"];
+        return ["status" => "failed", "message" => "Unable to initialize database"];
     }
 
     /**
@@ -129,11 +138,12 @@ class ServiceController extends ApiMutableServiceControllerBase
     public function statsAction()
     {
         $backend = new Backend();
-        $bckresult = json_decode(trim($backend->configdRun("abuseipdbchecker stats")), true);
+        $response = $backend->configdRun("abuseipdbchecker stats");
+        $bckresult = json_decode(trim($response), true);
         if ($bckresult !== null) {
             return $bckresult;
         }
-        return ["message" => "Unable to retrieve statistics"];
+        return ["status" => "failed", "message" => "Unable to retrieve statistics"];
     }
 
     /**
@@ -142,11 +152,37 @@ class ServiceController extends ApiMutableServiceControllerBase
     public function threatsAction()
     {
         $backend = new Backend();
-        $bckresult = json_decode(trim($backend->configdRun("abuseipdbchecker threats")), true);
+        $response = $backend->configdRun("abuseipdbchecker threats");
+        $bckresult = json_decode(trim($response), true);
         if ($bckresult !== null) {
             return $bckresult;
         }
-        return ["message" => "Unable to retrieve recent threats"];
+        return ["status" => "failed", "message" => "Unable to retrieve recent threats"];
+    }
+    
+    /**
+     * test a specific IP
+     */
+    public function testipAction()
+    {
+        $ip = $this->request->getPost('ip', 'string', '');
+        if (empty($ip)) {
+            return ["status" => "failed", "message" => "IP address is required"];
+        }
+        
+        // Basic IP validation
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+            return ["status" => "failed", "message" => "Invalid IP address format"];
+        }
+        
+        $backend = new Backend();
+        $response = $backend->configdRun("abuseipdbchecker testip {$ip}");
+        $bckresult = json_decode(trim($response), true);
+        if ($bckresult !== null) {
+            return $bckresult;
+        }
+        
+        return ["status" => "failed", "message" => "Unable to test IP address"];
     }
 
     protected function reconfigureForceRestart()

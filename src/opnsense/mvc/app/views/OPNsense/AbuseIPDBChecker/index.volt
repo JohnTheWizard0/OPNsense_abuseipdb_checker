@@ -80,76 +80,6 @@
                 }
             };
             
-            // Load statistics
-            function loadStats() {
-                ajaxCall(url="/api/abuseipdbchecker/service/stats", sendData={}, callback=function(data) {
-                    if (data && data.status === 'ok') {
-                        $("#total-ips-checked").text(data.total_ips || 0);
-                        $("#total-threats").text(data.total_threats || 0);
-                        $("#checks-today").text(data.daily_checks || 0);
-                        $("#last-run").text(data.last_check || 'Never');
-                    }
-                });
-            }
-
-            // Load recent threats
-            function loadThreats() {
-                ajaxCall(url="/api/abuseipdbchecker/service/threats", sendData={}, callback=function(data) {
-                    if (data && data.status === 'ok' && data.threats) {
-                        var threatTable = $("#recent-threats-table");
-                        threatTable.empty();
-                        
-                        if (data.threats.length === 0) {
-                            threatTable.append('<tr><td colspan="5">No threats detected</td></tr>');
-                        } else {
-                            $.each(data.threats, function(i, threat) {
-                                var row = $('<tr>');
-                                row.append($('<td>').text(threat.ip));
-                                row.append($('<td>').text(threat.score + '%'));
-                                row.append($('<td>').text(threat.last_seen));
-                                row.append($('<td>').text(threat.country));
-                                row.append($('<td>').html('<a href="https://www.abuseipdb.com/check/' + threat.ip + '" target="_blank">View</a>'));
-                                threatTable.append(row);
-                            });
-                        }
-                    }
-                });
-            }
-
-            // Load logs (this will need a backend function implementation)
-            function loadLogs() {
-                ajaxCall(url="/api/abuseipdbchecker/service/logs", sendData={}, callback=function(data) {
-                    if (data && data.status === 'ok' && data.logs) {
-                        $("#log-content").text(data.logs.join(''));
-                    } else {
-                        $("#log-content").text("No logs available or error retrieving logs");
-                    }
-                });
-            }
-
-            // Initial load
-            loadStats();
-            loadThreats();
-            loadLogs();
-
-            // Add tab change event to refresh data
-            $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
-                var target = $(e.target).attr("href");
-                if (target === "#stats") {
-                    loadStats();
-                } else if (target === "#threats") {
-                    loadThreats();
-                } else if (target === "#logs") {
-                    loadLogs();
-                }
-            });
-
-            // Add refresh button handler
-            $("#refreshLogsBtn").click(function() {
-                loadLogs();
-            });
-
-
             // Send AJAX request
             ajaxCall(
                 url="/api/abuseipdbchecker/settings/set",
@@ -164,6 +94,155 @@
             );
             
         });
+        
+        // Load statistics
+        function loadStats() {
+            ajaxCall(url="/api/abuseipdbchecker/service/stats", sendData={}, callback=function(data) {
+                if (data && data.status === 'ok') {
+                    $("#total-ips-checked").text(data.total_ips || 0);
+                    $("#total-threats").text(data.total_threats || 0);
+                    $("#checks-today").text(data.daily_checks || 0);
+                    $("#last-run").text(data.last_check || 'Never');
+                }
+            });
+        }
+
+        // Load recent threats
+        function loadThreats() {
+            ajaxCall(url="/api/abuseipdbchecker/service/threats", sendData={}, callback=function(data) {
+                if (data && data.status === 'ok' && data.threats) {
+                    var threatTable = $("#recent-threats-table");
+                    threatTable.empty();
+                    
+                    if (data.threats.length === 0) {
+                        threatTable.append('<tr><td colspan="5">No threats detected</td></tr>');
+                    } else {
+                        $.each(data.threats, function(i, threat) {
+                            var row = $('<tr>');
+                            row.append($('<td>').text(threat.ip));
+                            row.append($('<td>').text(threat.score + '%'));
+                            row.append($('<td>').text(threat.last_seen));
+                            row.append($('<td>').text(threat.country));
+                            row.append($('<td>').html('<a href="https://www.abuseipdb.com/check/' + threat.ip + '" target="_blank">View</a>'));
+                            threatTable.append(row);
+                        });
+                    }
+                }
+            });
+        }
+
+        // Load logs
+        function loadLogs() {
+            ajaxCall(url="/api/abuseipdbchecker/service/logs", sendData={}, callback=function(data) {
+                if (data && data.status === 'ok' && data.logs) {
+                    if (data.logs.length === 0) {
+                        $("#log-content").text("No log entries found.");
+                    } else {
+                        $("#log-content").text(data.logs.join(''));
+                    }
+                } else {
+                    // Display the specific error message from the backend
+                    $("#log-content").text(data.message || "Error retrieving logs. Check permissions on /var/log/abuseipdbchecker/.");
+                }
+            });
+        }
+
+        // Test IP button handler
+        $("#testIpBtn").click(function() {
+            var ip = $("#ipToTest").val().trim();
+            if (!ip) {
+                $("#testResultAlert").removeClass("hidden alert-success alert-danger alert-warning")
+                    .addClass("alert-warning")
+                    .text("Please enter an IP address");
+                $("#testResults").removeClass("hidden");
+                $("#testResultTable").addClass("hidden");
+                return;
+            }
+            
+            // Validate IP format with regex
+            var ipRegex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+            if (!ipRegex.test(ip)) {
+                $("#testResultAlert").removeClass("hidden alert-success alert-danger alert-warning")
+                    .addClass("alert-danger")
+                    .text("Invalid IP address format");
+                $("#testResults").removeClass("hidden");
+                $("#testResultTable").addClass("hidden");
+                return;
+            }
+            
+            // Show loading
+            $("#testIpBtn").prop("disabled", true);
+            $("#testResultAlert").removeClass("hidden alert-success alert-danger alert-warning")
+                .addClass("alert-info")
+                .text("Testing IP address...");
+            $("#testResults").removeClass("hidden");
+            $("#testResultTable").addClass("hidden");
+            
+            // Make AJAX call
+            ajaxCall(
+                url="/api/abuseipdbchecker/service/testip",
+                sendData={"ip": ip},
+                callback=function(data) {
+                    $("#testIpBtn").prop("disabled", false);
+                    
+                    if (data && data.status === 'ok') {
+                        // Show results
+                        $("#testResultAlert").removeClass("alert-info alert-danger alert-warning")
+                            .addClass(data.is_threat ? "alert-danger" : "alert-success")
+                            .text(data.is_threat ? 
+                                "Malicious IP detected with score " + data.abuse_score + "%" : 
+                                "IP appears to be safe with score " + data.abuse_score + "%");
+                        
+                        // Fill in the table
+                        $("#result-ip").text(data.ip);
+                        $("#result-threat").html(data.is_threat ? 
+                            '<span class="label label-danger">Malicious</span>' : 
+                            '<span class="label label-success">Safe</span>');
+                        $("#result-score").text(data.abuse_score + "%");
+                        $("#result-country").text(data.country);
+                        $("#result-isp").text(data.isp);
+                        $("#result-domain").text(data.domain);
+                        $("#result-reports").text(data.reports);
+                        $("#result-last-reported").text(data.last_reported);
+                        
+                        $("#testResultTable").removeClass("hidden");
+                        
+                        // Refresh statistics and threats
+                        loadStats();
+                        loadThreats();
+                        loadLogs();
+                    } else {
+                        // Show error
+                        $("#testResultAlert").removeClass("alert-info alert-success alert-warning")
+                            .addClass("alert-danger")
+                            .text(data.message || "Error testing IP address");
+                        $("#testResultTable").addClass("hidden");
+                    }
+                }
+            );
+        });
+
+        // Initial load
+        loadStats();
+        loadThreats();
+        loadLogs();
+
+        // Add tab change event to refresh data
+        $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+            var target = $(e.target).attr("href");
+            if (target === "#stats") {
+                loadStats();
+            } else if (target === "#threats") {
+                loadThreats();
+            } else if (target === "#logs") {
+                loadLogs();
+            }
+        });
+
+        // Add refresh button handler
+        $("#refreshLogsBtn").click(function() {
+            loadLogs();
+        });
     });
 </script>
 
@@ -174,6 +253,7 @@
     <li><a data-toggle="tab" href="#network">Network</a></li>
     <li><a data-toggle="tab" href="#api">API</a></li>
     <li><a data-toggle="tab" href="#email">Email</a></li>
+    <li><a data-toggle="tab" href="#testip">Test IP</a></li>
 </ul>
 
 <div class="tab-content">
@@ -279,6 +359,45 @@
                 <label>
                     <input type="checkbox" id="usetls"> Enable TLS for SMTP
                 </label>
+            </div>
+        </div>
+    </div>
+    <div id="testip" class="tab-pane fade">
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h3 class="panel-title">{{ lang._('Test IP Address') }}</h3>
+            </div>
+            <div class="panel-body">
+                <form id="testIpForm">
+                    <div class="form-group">
+                        <label for="ipToTest">{{ lang._('IP Address') }}</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="ipToTest" placeholder="Enter IP address to test" value="118.76.192.54">
+                            <span class="input-group-btn">
+                                <button class="btn btn-primary" type="button" id="testIpBtn">
+                                    {{ lang._('Test') }}
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+                </form>
+                
+                <div id="testResults" class="hidden">
+                    <div class="alert" id="testResultAlert" role="alert"></div>
+                    
+                    <table class="table table-striped table-condensed" id="testResultTable">
+                        <tbody>
+                            <tr><th>{{ lang._('IP Address') }}</th><td id="result-ip"></td></tr>
+                            <tr><th>{{ lang._('Threat Status') }}</th><td id="result-threat"></td></tr>
+                            <tr><th>{{ lang._('Abuse Score') }}</th><td id="result-score"></td></tr>
+                            <tr><th>{{ lang._('Country') }}</th><td id="result-country"></td></tr>
+                            <tr><th>{{ lang._('ISP') }}</th><td id="result-isp"></td></tr>
+                            <tr><th>{{ lang._('Domain') }}</th><td id="result-domain"></td></tr>
+                            <tr><th>{{ lang._('Reports') }}</th><td id="result-reports"></td></tr>
+                            <tr><th>{{ lang._('Last Reported') }}</th><td id="result-last-reported"></td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
