@@ -14,6 +14,6 @@ post-install:
 	@chmod +x ${STAGEDIR}${PREFIX}/opnsense/scripts/AbuseIPDBChecker/*.sh
 	@echo "Installing rc script"
 	${INSTALL_SCRIPT} ${WRKSRC}/src/etc/rc.d/abuseipdbchecker ${STAGEDIR}${PREFIX}/etc/rc.d/
-	@chmod +x ${STAGEDIR}${PREFIX}/etc/rc.d/abuseipdbchecker
+	@chmod +x /usr/local/etc/rc.d/abuseipdbchecker
 	@echo "Installing plugin registration file"
 	${INSTALL_DATA} ${WRKSRC}/src/etc/inc/plugins.inc.d/abuseipdbchecker.inc ${STAGEDIR}${PREFIX}/etc/inc/plugins.inc.d/

@@ -9,22 +9,22 @@ function abuseipdbchecker_services() {
     
     $services = array();
     
-    // Be more explicit in checking if the service is enabled
-    if (isset($config['OPNsense']['abuseipdbchecker']['general']['Enabled']) && 
-        $config['OPNsense']['abuseipdbchecker']['general']['Enabled'] == '1') {
-        
-        $service = array();
-        $service['name'] = 'abuseipdbchecker';
-        $service['description'] = gettext('AbuseIPDB Checker');
-        $service['configd']['restart'] = array('abuseipdbchecker restart');
-        $service['configd']['start'] = array('abuseipdbchecker start');
-        $service['configd']['stop'] = array('abuseipdbchecker stop');
-        
-        // Add status check
-        $service['configd']['status'] = array('abuseipdbchecker status');
-        
-        $services[] = $service;
-    }
+    // Debug output - helps see what's in config
+    syslog(LOG_NOTICE, "AbuseIPDBChecker: Config check - " . 
+        (isset($config['OPNsense']['abuseipdbchecker']['general']['Enabled']) ? 
+        "Enabled found: " . $config['OPNsense']['abuseipdbchecker']['general']['Enabled'] : 
+        "Enabled not found"));
+    
+    // Force-enable for testing
+    $service = array();
+    $service['name'] = 'abuseipdbchecker';
+    $service['description'] = gettext('AbuseIPDB Checker');
+    $service['configd']['restart'] = array('abuseipdbchecker restart');
+    $service['configd']['start'] = array('abuseipdbchecker start');
+    $service['configd']['stop'] = array('abuseipdbchecker stop');
+    $service['configd']['status'] = array('abuseipdbchecker status');
+    
+    $services[] = $service;
     
     return $services;
 }
