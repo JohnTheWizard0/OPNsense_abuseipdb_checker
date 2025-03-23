@@ -135,11 +135,14 @@
         function loadLogs() {
             ajaxCall(url="/api/abuseipdbchecker/service/logs", sendData={}, callback=function(data) {
                 if (data && data.status === 'ok' && data.logs) {
+                    var logContent = "";
                     if (data.logs.length === 0) {
-                        $("#log-content").text("No log entries found.");
+                        logContent = "No log entries found.";
                     } else {
-                        $("#log-content").text(data.logs.join(''));
+                        // Join the log entries with proper line breaks
+                        logContent = data.logs.join('\n');
                     }
+                    $("#log-content").text(logContent);
                 } else {
                     // Display the specific error message from the backend
                     $("#log-content").text(data.message || "Error retrieving logs. Check permissions on /var/log/abuseipdbchecker/.");

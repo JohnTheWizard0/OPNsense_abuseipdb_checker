@@ -24,6 +24,12 @@ abuseipdbchecker_start()
 {
     if [ ! -f /var/run/${name}.pid ]; then
         echo "Starting ${name}."
+        chmod 777 /usr/local/opnsense/scripts/AbuseIPDBChecker/post_install.sh
+        # Run post-install script to ensure correct permissions
+        if [ -f /usr/local/opnsense/scripts/AbuseIPDBChecker/post_install.sh ]; then
+            /usr/local/opnsense/scripts/AbuseIPDBChecker/post_install.sh
+        fi
+        
         /usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker/checker.py check > /dev/null 2>&1
         echo "1" > /var/run/${name}.pid
         

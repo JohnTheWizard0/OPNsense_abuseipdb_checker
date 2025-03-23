@@ -113,7 +113,7 @@ def log_message(message):
         # Create log directory if it doesn't exist
         if not os.path.exists(log_dir):
             try:
-                os.makedirs(log_dir, mode=0o755)  # More permissive mode for directory
+                os.makedirs(log_dir, mode=0o755)
                 # Try to set ownership to www user (web server)
                 try:
                     import subprocess
@@ -124,6 +124,11 @@ def log_message(message):
                 print(f"Error creating log directory: {str(e)}", file=sys.stderr)
                 return
         
+        # Check if this is a startup message that should be suppressed
+        if "Script started successfully" in message and os.path.exists(log_file):
+            # Skip logging repetitive startup messages
+            return
+            
         # Append message to log file
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         with open(log_file, 'a') as f:
@@ -710,14 +715,29 @@ def test_ip(ip_address):
     """Test a single IP against AbuseIPDB"""
     log_message(f"Starting test of IP: {ip_address}")
     
-    if not os.path.exists(DB_FILE):
-        log_message("Database file not found")
+    # Check if script has been called correctly
+    try:
+        log_message(f"Python executable: {sys.executable}")
+        log_message(f"Script path: {os.path.abspath(__file__)}")
+        log_message(f"Current working directory: {os.getcwd()}")
+    except Exception as e:
+        log_message(f"Error getting script info: {str(e)}")
+    
+    # Create log directory if it doesn't exist
+    log_dir = '/var/log/abuseipdbchecker'
+    if not os.path.exists(log_dir):
+        try:
+            os.makedirs(log_dir, mode=0o755)
+            log_message(f"Created log directory: {log_dir}")
+        except Exception as e:
+            log_message(f"Error creating log directory: {str(e)}")
         # Try to initialize the database
         try:
             log_message("Attempting to initialize database")
             db_dir = os.path.dirname(DB_FILE)
             if not os.path.exists(db_dir):
                 os.makedirs(db_dir, mode=0o755)
+                
             # Create a minimal db structure
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
@@ -867,23 +887,31 @@ def test_ip(ip_address):
         
         # Prepare result
         result = {
-            'status': 'ok',
-            'ip': ip_address,
-            'is_threat': is_threat,
-            'abuse_score': abuse_score,
-            'country': report.get('countryCode', 'Unknown'),
-            'isp': report.get('isp', 'Unknown'),
-            'domain': report.get('domain', 'Unknown'),
-            'reports': report.get('totalReports', 0),
-            'last_reported': report.get('lastReportedAt', 'Never')
+            "status": "ok",
+            "ip": ip_address,
+            "is_threat": is_threat,
+            "abuse_score": abuse_score,
+            "country": report.get("countryCode", "Unknown"),
+            "isp": report.get("isp", "Unknown"),
+            "domain": report.get("domain", "Unknown"),
+            "reports": report.get("totalReports", 0),
+            "last_reported": report.get("lastReportedAt", "Never")
         }
         
+        # Ensure clean JSON output
         log_message(f"Test completed for {ip_address}: {'Threat' if is_threat else 'Clean'} (Score: {abuse_score})")
+        
+        # Double-check that all values in the result are JSON-serializable
+        for key, value in result.items():
+            if value is None:
+                result[key] = ""
+                
         return result
         
     except Exception as e:
-        log_message(f"Error testing IP {ip_address}: {str(e)}")
-        return {'status': 'error', 'message': f'Error testing IP: {str(e)}'}
+        log_message(f"Error formatting test result for {ip_address}: {str(e)}")
+        return {"status": "error", "message": f"Error formatting result: {str(e)}"}
+    
     finally:
         if conn:
             conn.close()
