@@ -12,3 +12,6 @@ post-install:
 	@echo "Making scripts executable"
 	@chmod +x ${STAGEDIR}${PREFIX}/opnsense/scripts/AbuseIPDBChecker/*.py
 	@chmod +x ${STAGEDIR}${PREFIX}/opnsense/scripts/AbuseIPDBChecker/*.sh
+	@echo "Installing rc script"
+	${INSTALL_SCRIPT} ${WRKSRC}/src/etc/rc.d/abuseipdbchecker ${STAGEDIR}${PREFIX}/etc/rc.d/
+	@chmod +x ${STAGEDIR}${PREFIX}/etc/rc.d/abuseipdbchecker

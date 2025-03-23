@@ -87,6 +87,23 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * get service status
+     * @return array
+     */
+    public function statusAction()
+    {
+        $backend = new Backend();
+        $response = $backend->configdRun("abuseipdbchecker status");
+        $status = json_decode($response, true);
+        
+        if ($status !== null) {
+            return $status;
+        } else {
+            return array("status" => "unknown");
+        }
+    }
+
+    /**
      * get logs
      */
     public function logsAction()
