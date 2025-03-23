@@ -44,7 +44,7 @@ class ServiceController extends ApiMutableServiceControllerBase
     protected static $internalServiceTemplate = 'OPNsense/AbuseIPDBChecker';
     protected static $internalServiceEnabled = 'general.Enabled';
     protected static $internalServiceName = 'abuseipdbchecker';
-
+    
     /**
      * reconfigure AbuseIPDBChecker
      */
