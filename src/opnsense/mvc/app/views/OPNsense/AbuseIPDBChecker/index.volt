@@ -20,18 +20,21 @@
 
             console.log("Save button clicked");
     
-            // First, collect all form data into a single object
+            // Create a single object with the correct structure
             var formData = {};
-            formData['abuseipdbchecker'] = getFormData('frm_general');
-
-            // Add network data to the same object
-            $.extend(true, formData['abuseipdbchecker'], getFormData('frm_network'));
             
-            // Add API data
-            $.extend(true, formData['abuseipdbchecker'], getFormData('frm_api'));
+            // Get data from each form
+            var generalData = getFormData('frm_general');
+            var networkData = getFormData('frm_network');
+            var apiData = getFormData('frm_api');
+            var emailData = getFormData('frm_email');
             
-            // Add email data
-            $.extend(true, formData['abuseipdbchecker'], getFormData('frm_email'));
+            // Combine all data into a single properly structured object
+            formData['abuseipdbchecker'] = {};
+            if (generalData.general) formData['abuseipdbchecker']['general'] = generalData.general;
+            if (networkData.network) formData['abuseipdbchecker']['network'] = networkData.network;
+            if (apiData.api) formData['abuseipdbchecker']['api'] = apiData.api;
+            if (emailData.email) formData['abuseipdbchecker']['email'] = emailData.email;
             
             console.log("Complete form data:", formData);
 
@@ -55,23 +58,46 @@
             }
             
             // Now send the combined data
+            // Send the data to the server
             ajaxCall(
                 "/api/abuseipdbchecker/settings/set",
                 formData,
                 function(data, status) {
                     if (data.result === "saved") {
-                        // Success
+                        // Show success message
+                        BootstrapDialog.show({
+                            type: BootstrapDialog.TYPE_SUCCESS,
+                            title: "{{ lang._('Settings saved') }}",
+                            message: "{{ lang._('The settings have been saved successfully.') }}",
+                            buttons: [{
+                                label: "{{ lang._('Close') }}",
+                                action: function(dialogRef) {
+                                    dialogRef.close();
+                                }
+                            }]
+                        });
+                        
+                        // Refresh data
                         updateStats();
                         updateThreats();
                         updateLogs();
                     } else {
-                        // Handle validation errors if present
-                        if (data.validations) {
-                            console.error("Validation errors:", data.validations);
-                        }
+                        // Show error message
+                        BootstrapDialog.show({
+                            type: BootstrapDialog.TYPE_DANGER,
+                            title: "{{ lang._('Error') }}",
+                            message: "{{ lang._('There was an error saving the settings.') }}",
+                            buttons: [{
+                                label: "{{ lang._('Close') }}",
+                                action: function(dialogRef) {
+                                    dialogRef.close();
+                                }
+                            }]
+                        });
                     }
                 }
             );
+
         });
         
         // Test IP button handler
