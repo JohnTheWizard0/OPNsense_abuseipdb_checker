@@ -47,6 +47,12 @@
         
         // Save button handler
         $("#saveBtn").click(function() {
+            // Check if trying to enable with no API key
+            if ($("#enabled").prop('checked') && ($("#apikey").val().trim() === "" || $("#apikey").val().trim() === "YOUR_API_KEY")) {
+                $("#statusMsg").removeClass("hidden alert-success").addClass("alert-danger")
+                    .text("API key is required to enable the plugin. Please configure a valid API key in the API tab.");
+                return;
+            }
             // Collect form data
             var formData = {
                 abuseipdbchecker: {
@@ -152,6 +158,30 @@
 
         // Test IP button handler
         $("#testIpBtn").click(function() {
+            
+            // Check if plugin is enabled first
+            var isEnabled = $("#enabled").prop('checked');
+
+            if (!isEnabled) {
+                $("#testResultAlert").removeClass("hidden alert-success alert-danger alert-warning")
+                    .addClass("alert-danger")
+                    .text("Please enable the AbuseIPDB Checker plugin before testing IPs");
+                $("#testResults").removeClass("hidden");
+                $("#testResultTable").addClass("hidden");
+                return;
+            }
+
+                // Check if API key is set
+            var apiKey = $("#apikey").val().trim();
+            if (!apiKey || apiKey === "YOUR_API_KEY") {
+                $("#testResultAlert").removeClass("hidden alert-success alert-danger alert-warning")
+                    .addClass("alert-danger")
+                    .text("Please configure a valid API key in the API tab before testing IPs");
+                $("#testResults").removeClass("hidden");
+                $("#testResultTable").addClass("hidden");
+                return;
+            }
+
             var ip = $("#ipToTest").val().trim();
             if (!ip) {
                 $("#testResultAlert").removeClass("hidden alert-success alert-danger alert-warning")

@@ -20,7 +20,7 @@ class SettingsController extends ApiControllerBase
         }
         
         // Default values if file doesn't exist or is empty
-        if (empty($settings)) {
+/*         if (empty($settings)) {
             $settings = [
                 'general' => [
                     'Enabled' => '1',
@@ -50,7 +50,7 @@ class SettingsController extends ApiControllerBase
                     'UseTLS' => '1'
                 ]
             ];
-        }
+        } */
         
         return ['abuseipdbchecker' => $settings];
     }
@@ -71,6 +71,19 @@ class SettingsController extends ApiControllerBase
             // Get POST data
             $data = $this->request->getPost('abuseipdbchecker');
             if (!empty($data)) {
+                // Check if trying to enable but API key is missing or default
+                if (isset($data['general']['Enabled']) && 
+                    ($data['general']['Enabled'] === true || $data['general']['Enabled'] === 'true' || $data['general']['Enabled'] === '1')) {
+                    if (!isset($data['api']['Key']) || 
+                        empty($data['api']['Key']) || 
+                        $data['api']['Key'] === 'YOUR_API_KEY') {
+                        return [
+                            'result' => 'failed', 
+                            'validationMessages' => ['api.Key' => 'API key is required to enable the plugin']
+                        ];
+                    }
+                }
+                
                 // Write to file
                 $content = "";
                 
