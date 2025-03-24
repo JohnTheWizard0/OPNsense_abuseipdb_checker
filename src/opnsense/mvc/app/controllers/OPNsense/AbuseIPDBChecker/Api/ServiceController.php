@@ -13,6 +13,21 @@ class ServiceController extends ApiMutableServiceControllerBase
     protected static $internalServiceEnabled = 'general.Enabled';
     protected static $internalServiceName = 'abuseipdbchecker';
 
+
+    /**
+     * Ensure backend actions exist
+     */
+    public function reloadAction()
+    {
+        if ($this->request->isPost()) {
+            // First apply template
+            $backend = new Backend();
+            $bckresult = trim($backend->configdRun('template reload OPNsense/AbuseIPDBChecker'));
+            return array("status" => $bckresult);
+        }
+        return array("status" => "failed");
+    }
+
     /**
      * Initialize database if needed
      */

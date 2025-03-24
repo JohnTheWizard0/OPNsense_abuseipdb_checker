@@ -16,6 +16,13 @@
 
         // Save button handler
         $("#saveAct").click(function() {
+
+            console.log("Save button clicked");
+    
+            // Debug: Check form data
+            var formData = getFormData('frm_general');
+            console.log("Form data:", formData);
+
             // Validate API key if enabled
             var enabled = $("#abuseipdbchecker\\.general\\.Enabled").prop('checked');
             var apiKey = $("#abuseipdbchecker\\.api\\.Key").val();
