@@ -1,42 +1,54 @@
 <?php
 namespace OPNsense\AbuseIPDBChecker\Api;
 
-use OPNsense\Base\ApiControllerBase;
+use OPNsense\Base\ApiMutableModelControllerBase;
 use OPNsense\Core\Config;
 use OPNsense\AbuseIPDBChecker\AbuseIPDBChecker;
+use OPNsense\Core\Backend;
 
-class SettingsController extends ApiControllerBase
+class SettingsController extends ApiMutableModelControllerBase
 {
-    public function getAction() 
+    protected static $internalModelClass = '\OPNsense\AbuseIPDBChecker\AbuseIPDBChecker';
+    protected static $internalModelName = 'abuseipdbchecker';
+    
+    public function getAction()
     {
-        $model = new AbuseIPDBChecker();
-        return array("abuseipdbchecker" => $model->getNodes());
+        $result = array();
+        $mdlAbuseIPDB = new AbuseIPDBChecker();
+        $result['abuseipdbchecker'] = $mdlAbuseIPDB->getNodes();
+        return $result;
     }
     
-    public function setAction() 
+    public function setAction()
     {
-        if ($this->request->isPost() && $this->request->hasPost("abuseipdbchecker")) {
-            $model = new AbuseIPDBChecker();
-            $model->setNodes($this->request->getPost("abuseipdbchecker"));
+        $result = array("result" => "failed");
+        if ($this->request->isPost()) {
+            // Get post data and update model
+            $mdlAbuseIPDB = new AbuseIPDBChecker();
+            $mdlAbuseIPDB->setNodes($this->request->getPost("abuseipdbchecker"));
             
-            $validations = $model->performValidation();
+            // Validate model
+            $validations = $mdlAbuseIPDB->performValidation();
+            
             if (count($validations) > 0) {
-                $response = array("result" => "failed", "validations" => array());
+                // Input validation errors found
+                $result["validations"] = array();
                 foreach ($validations as $field => $message) {
-                    $response["validations"]["abuseipdbchecker." . $message->getField()] = $message->getMessage();
+                    $fieldname = str_replace($mdlAbuseIPDB->__toString() . ".", "", $message->getField());
+                    $result["validations"][$fieldname] = $message->getMessage();
                 }
-                return $response;
+            } else {
+                // Save model to config
+                $mdlAbuseIPDB->serializeToConfig();
+                Config::getInstance()->save();
+                
+                // Apply configuration changes
+                $backend = new Backend();
+                $backend->configdRun('template reload OPNsense/AbuseIPDBChecker');
+                
+                $result = array("result" => "saved");
             }
-            
-            // Save model to config and persist
-            $model->serializeToConfig();
-            Config::getInstance()->save();
-            
-            // Apply changes using the template
-            \OPNsense\Core\Backend::configdRun('template reload OPNsense/AbuseIPDBChecker');
-            
-            return array("result" => "saved");
         }
-        return array("result" => "failed");
+        return $result;
     }
 }

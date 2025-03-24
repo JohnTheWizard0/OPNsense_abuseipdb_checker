@@ -20,9 +20,20 @@
 
             console.log("Save button clicked");
     
-            // Debug: Check form data
-            var formData = getFormData('frm_general');
-            console.log("Form data:", formData);
+            // First, collect all form data into a single object
+            var formData = {};
+            formData['abuseipdbchecker'] = getFormData('frm_general');
+
+            // Add network data to the same object
+            $.extend(true, formData['abuseipdbchecker'], getFormData('frm_network'));
+            
+            // Add API data
+            $.extend(true, formData['abuseipdbchecker'], getFormData('frm_api'));
+            
+            // Add email data
+            $.extend(true, formData['abuseipdbchecker'], getFormData('frm_email'));
+            
+            console.log("Complete form data:", formData);
 
             // Validate API key if enabled
             var enabled = $("#abuseipdbchecker\\.general\\.Enabled").prop('checked');
@@ -43,21 +54,22 @@
                 return;
             }
             
-            // Save data
-            saveFormToEndpoint(
+            // Now send the combined data
+            ajaxCall(
                 "/api/abuseipdbchecker/settings/set",
-                ['frm_general', 'frm_network', 'frm_api', 'frm_email'],
-                function() {
-                    $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
-                    ajaxCall(
-                        "/api/abuseipdbchecker/service/reload",
-                        {},
-                        function(data,status) {
-                            updateStats();
-                            updateThreats();
-                            updateLogs();
+                formData,
+                function(data, status) {
+                    if (data.result === "saved") {
+                        // Success
+                        updateStats();
+                        updateThreats();
+                        updateLogs();
+                    } else {
+                        // Handle validation errors if present
+                        if (data.validations) {
+                            console.error("Validation errors:", data.validations);
                         }
-                    );
+                    }
                 }
             );
         });
@@ -235,28 +247,28 @@
                 <!-- General Settings -->
                 <div id="general" class="tab-pane fade in active">
                     <div class="content-box">
-                        {{ partial("layout_partials/base_form",['fields':generalForm,'id':'frm_general']) }}
+                        {{ partial("layout_partials/base_form",['fields':generalForm,'id':'frm_general','parent':'abuseipdbchecker']) }}
                     </div>
                 </div>
                 
                 <!-- Network Settings -->
                 <div id="network" class="tab-pane fade">
                     <div class="content-box">
-                        {{ partial("layout_partials/base_form",['fields':networkForm,'id':'frm_network']) }}
+                        {{ partial("layout_partials/base_form",['fields':networkForm,'id':'frm_network','parent':'abuseipdbchecker']) }}
                     </div>
                 </div>
                 
                 <!-- API Settings -->
                 <div id="api" class="tab-pane fade">
                     <div class="content-box">
-                        {{ partial("layout_partials/base_form",['fields':apiForm,'id':'frm_api']) }}
+                        {{ partial("layout_partials/base_form",['fields':apiForm,'id':'frm_api','parent':'abuseipdbchecker']) }}
                     </div>
                 </div>
                 
                 <!-- Email Settings -->
                 <div id="email" class="tab-pane fade">
                     <div class="content-box">
-                        {{ partial("layout_partials/base_form",['fields':emailForm,'id':'frm_email']) }}
+                        {{ partial("layout_partials/base_form",['fields':emailForm,'id':'frm_email','parent':'abuseipdbchecker']) }}
                     </div>
                 </div>
             </div>
