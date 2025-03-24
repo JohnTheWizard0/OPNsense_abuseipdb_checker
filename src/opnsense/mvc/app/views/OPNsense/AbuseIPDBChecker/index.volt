@@ -1,5 +1,6 @@
 <script>
     $(document).ready(function() {
+        
         // Load initial data
         var data_get_map = {
             'frm_general': "/api/abuseipdbchecker/settings/get",
