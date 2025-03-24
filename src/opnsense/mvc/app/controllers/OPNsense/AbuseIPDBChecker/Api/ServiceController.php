@@ -192,51 +192,21 @@ class ServiceController extends ApiMutableServiceControllerBase
             return ["status" => "failed", "message" => "Invalid IP address format"];
         }
         
-        // Create log directory first to ensure permissions
-        $logDir = '/var/log/abuseipdbchecker';
-        if (!file_exists($logDir)) {
-            @mkdir($logDir, 0755, true);
-            @chmod($logDir, 0755);
-            @chown($logDir, 'www');
-            @chgrp($logDir, 'www');
-        }
+        // Ensure directories exist
+        $this->ensureDirectories();
         
-        // Initialize database if needed
-        $dbDir = '/var/db/abuseipdbchecker';
-        if (!file_exists($dbDir)) {
-            @mkdir($dbDir, 0755, true);
-            @chmod($dbDir, 0755);
-            @chown($dbDir, 'www');
-            @chgrp($dbDir, 'www');
-        }
-        
-        // Log the command that will be executed for debugging
+        // Log the command for debugging
         $command = "abuseipdbchecker testip {$ip}";
         syslog(LOG_NOTICE, "AbuseIPDBChecker: Executing command: {$command}");
         
         $backend = new Backend();
         $response = $backend->configdRun($command);
         
-        // Check for empty response
-        if (empty($response)) {
-            // Try direct execution as fallback
-            $scriptPath = "/usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker/checker.py";
-            $output = [];
-            $returnCode = 0;
-            
-            syslog(LOG_NOTICE, "AbuseIPDBChecker: Direct execution fallback: {$scriptPath} testip {$ip}");
-            exec("python3 {$scriptPath} testip {$ip} 2>&1", $output, $returnCode);
-            
-            if ($returnCode === 0 && !empty($output)) {
-                $response = implode("\n", $output);
-            } else {
-                syslog(LOG_ERR, "AbuseIPDBChecker: Direct execution failed: " . implode("\n", $output));
-                return ["status" => "failed", "message" => "No response from backend. Check script permissions and logs."];
-            }
-        }
+        // Debug: Log the raw response
+        syslog(LOG_NOTICE, "AbuseIPDBChecker: Raw response: " . substr($response, 0, 200));
         
-        // Remove any BOM and UTF-8 non-breaking spaces that might interfere with JSON parsing
-        $response = trim(preg_replace('/[\x00-\x1F\x80-\xFF]/', '', $response));
+        // Clean the response more carefully
+        $response = trim($response);
         
         // Try to decode JSON
         $bckresult = json_decode($response, true);
@@ -245,38 +215,51 @@ class ServiceController extends ApiMutableServiceControllerBase
             return $bckresult;
         }
         
-        // If JSON decode failed, log the raw response for debugging
-        syslog(LOG_ERR, "AbuseIPDBChecker: JSON decode failed. Raw response: " . substr($response, 0, 200));
+        // If JSON decode failed, try to execute directly
+        syslog(LOG_ERR, "AbuseIPDBChecker: JSON decode failed, trying direct execution");
+        $scriptPath = "/usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker/checker.py";
+        $output = [];
+        $returnCode = 0;
         
-        // If response contains multiple lines (possibly mixed stdout/stderr), try to extract just the JSON part
-        if (strpos($response, "\n") !== false) {
-            $lines = explode("\n", $response);
-            foreach ($lines as $line) {
-                $line = trim($line);
-                if (!empty($line) && $line[0] == '{' && substr($line, -1) == '}') {
-                    $potentialJson = json_decode($line, true);
-                    if ($potentialJson !== null) {
-                        syslog(LOG_NOTICE, "AbuseIPDBChecker: Extracted valid JSON from multiline response");
-                        return $potentialJson;
-                    }
-                }
+        exec("python3 {$scriptPath} testip {$ip} 2>&1", $output, $returnCode);
+        
+        if ($returnCode === 0 && !empty($output)) {
+            // Get the last line as it's likely the JSON output
+            $jsonOutput = end($output);
+            $bckresult = json_decode($jsonOutput, true);
+            if ($bckresult !== null) {
+                syslog(LOG_NOTICE, "AbuseIPDBChecker: Direct execution successful");
+                return $bckresult;
             }
         }
         
-        // Create a simplified valid response as fallback
-        // This avoids UI errors and uses log data we already captured
+        // If all else fails, create a default response that indicates an error
         return [
-            "status" => "ok",
+            "status" => "error",
+            "message" => "Could not parse response from backend. Check logs for details.",
             "ip" => $ip,
             "is_threat" => false,
-            "abuse_score" => 0,
-            "country" => "Unknown",
-            "isp" => "See logs for details",
-            "domain" => "",
-            "reports" => 0,
-            "last_reported" => "Unknown",
-            "message" => "Response processed from logs. See system logs for details."
+            "abuse_score" => 0
         ];
+    }
+
+    /**
+     * Helper function to ensure required directories exist
+     */
+    private function ensureDirectories()
+    {
+        $dirs = [
+            '/var/log/abuseipdbchecker' => 0755,
+            '/var/db/abuseipdbchecker' => 0755,
+            '/usr/local/etc/abuseipdbchecker' => 0755
+        ];
+        
+        foreach ($dirs as $dir => $mode) {
+            if (!file_exists($dir)) {
+                mkdir($dir, $mode, true);
+                chmod($dir, $mode);
+            }
+        }
     }
 
     protected function reconfigureForceRestart()

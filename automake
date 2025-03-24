@@ -1,6 +1,6 @@
 pkg delete -y os-abuseipdbchecker-devel
 make package
+pkg add work/pkg/*.pkg
 chmod +x post_install.sh
 ./post_install.sh
-pkg add work/pkg/*.pkg
 /usr/local/etc/rc.restart_webgui
