@@ -1,0 +1,20 @@
+<form>
+    <field>
+        <id>abuseipdbchecker.api.Key</id>
+        <label>API Key</label>
+        <type>text</type>
+        <help>Your AbuseIPDB API key</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.api.Endpoint</id>
+        <label>API Endpoint</label>
+        <type>text</type>
+        <help>AbuseIPDB API endpoint base URL</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.api.MaxAge</id>
+        <label>Max Age (days)</label>
+        <type>text</type>
+        <help>Maximum age in days for IP reports</help>
+    </field>
+</form>

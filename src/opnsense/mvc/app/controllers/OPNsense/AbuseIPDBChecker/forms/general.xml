@@ -1,140 +1,39 @@
 <form>
-    <!-- General Settings -->
-    <tab id="abuseipdbchecker-general" description="General Settings">
-        <subtab id="abuseipdbchecker-general-settings" description="General Settings">
-            <field>
-                <id>abuseipdbchecker.general.Enabled</id>
-                <label>Enable AbuseIPDB Checker</label>
-                <type>checkbox</type>
-                <help>Enable the AbuseIPDB Checker service</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.general.LogFile</id>
-                <label>Log File Path</label>
-                <type>text</type>
-                <help>Path to the firewall log file</help>
-                <advanced>true</advanced>
-            </field>
-            <field>
-                <id>abuseipdbchecker.general.CheckFrequency</id>
-                <label>Check Frequency (days)</label>
-                <type>text</type>
-                <help>Number of days before rechecking an IP address</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.general.AbuseScoreThreshold</id>
-                <label>Abuse Score Threshold</label>
-                <type>text</type>
-                <help>Minimum confidence score to consider an IP a threat (1-100)</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.general.DailyCheckLimit</id>
-                <label>Daily Check Limit</label>
-                <type>text</type>
-                <help>Maximum number of IPs to check per day</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.general.IgnoreBlockedConnections</id>
-                <label>Ignore Blocked Connections</label>
-                <type>checkbox</type>
-                <help>Only monitor allowed connections (ignore blocked traffic)</help>
-            </field>
-        </subtab>
-    </tab>
-    
-    <!-- Network Settings -->
-    <tab id="abuseipdbchecker-network" description="Network Settings">
-        <subtab id="abuseipdbchecker-network-settings" description="Network Settings">
-            <field>
-                <id>abuseipdbchecker.network.LanSubnets</id>
-                <label>LAN Subnets</label>
-                <type>text</type>
-                <help>LAN subnets to monitor (comma separated CIDR notation)</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.network.IgnoreProtocols</id>
-                <label>Ignore Protocols</label>
-                <type>text</type>
-                <help>Protocols to ignore (comma separated)</help>
-            </field>
-        </subtab>
-    </tab>
-    
-    <!-- API Settings -->
-    <tab id="abuseipdbchecker-api" description="API Settings">
-        <subtab id="abuseipdbchecker-api-settings" description="API Settings">
-            <field>
-                <id>abuseipdbchecker.api.Key</id>
-                <label>API Key</label>
-                <type>text</type>
-                <help>Your AbuseIPDB API key</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.api.Endpoint</id>
-                <label>API Endpoint</label>
-                <type>text</type>
-                <help>AbuseIPDB API endpoint base URL</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.api.MaxAge</id>
-                <label>Max Age (days)</label>
-                <type>text</type>
-                <help>Maximum age in days for IP reports</help>
-            </field>
-        </subtab>
-    </tab>
-    
-    <!-- Email Settings -->
-    <tab id="abuseipdbchecker-email" description="Email Notifications">
-        <subtab id="abuseipdbchecker-email-settings" description="Email Settings">
-            <field>
-                <id>abuseipdbchecker.email.Enabled</id>
-                <label>Enable Email Notifications</label>
-                <type>checkbox</type>
-                <help>Enable email notifications when threats are detected</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.email.SmtpServer</id>
-                <label>SMTP Server</label>
-                <type>text</type>
-                <help>SMTP server address</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.email.SmtpPort</id>
-                <label>SMTP Port</label>
-                <type>text</type>
-                <help>SMTP server port</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.email.SmtpUsername</id>
-                <label>SMTP Username</label>
-                <type>text</type>
-                <help>SMTP authentication username</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.email.SmtpPassword</id>
-                <label>SMTP Password</label>
-                <type>password</type>
-                <help>SMTP authentication password</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.email.FromAddress</id>
-                <label>From Email</label>
-                <type>text</type>
-                <help>Email address to send notifications from</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.email.ToAddress</id>
-                <label>To Email</label>
-                <type>text</type>
-                <help>Email address to send notifications to</help>
-            </field>
-            <field>
-                <id>abuseipdbchecker.email.UseTLS</id>
-                <label>Use TLS</label>
-                <type>checkbox</type>
-                <help>Use TLS for SMTP connection</help>
-            </field>
-        </subtab>
-    </tab>
+    <field>
+        <id>abuseipdbchecker.general.Enabled</id>
+        <label>Enable AbuseIPDB Checker</label>
+        <type>checkbox</type>
+        <help>Enable the AbuseIPDB Checker service</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.LogFile</id>
+        <label>Log File Path</label>
+        <type>text</type>
+        <help>Path to the firewall log file</help>
+        <advanced>true</advanced>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.CheckFrequency</id>
+        <label>Check Frequency (days)</label>
+        <type>text</type>
+        <help>Number of days before rechecking an IP address</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.AbuseScoreThreshold</id>
+        <label>Abuse Score Threshold</label>
+        <type>text</type>
+        <help>Minimum confidence score to consider an IP a threat (1-100)</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.DailyCheckLimit</id>
+        <label>Daily Check Limit</label>
+        <type>text</type>
+        <help>Maximum number of IPs to check per day</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.IgnoreBlockedConnections</id>
+        <label>Ignore Blocked Connections</label>
+        <type>checkbox</type>
+        <help>Only monitor allowed connections (ignore blocked traffic)</help>
+    </field>
 </form>

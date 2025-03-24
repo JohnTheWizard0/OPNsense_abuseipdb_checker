@@ -1,0 +1,14 @@
+<form>
+    <field>
+        <id>abuseipdbchecker.network.LanSubnets</id>
+        <label>LAN Subnets</label>
+        <type>text</type>
+        <help>LAN subnets to monitor (comma separated CIDR notation)</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.network.IgnoreProtocols</id>
+        <label>Ignore Protocols</label>
+        <type>text</type>
+        <help>Protocols to ignore (comma separated)</help>
+    </field>
+</form>
