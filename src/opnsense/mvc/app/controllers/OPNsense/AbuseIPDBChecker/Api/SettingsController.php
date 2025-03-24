@@ -1,23 +1,14 @@
 <?php
 namespace OPNsense\AbuseIPDBChecker\Api;
 
-use OPNsense\Base\ApiControllerBase;
-use OPNsense\Core\Config;
+use OPNsense\Base\ApiMutableModelControllerBase;
 
-class SettingsController extends ApiControllerBase
+/**
+ * Class SettingsController Handles settings related API actions for the AbuseIPDBChecker
+ * @package OPNsense\AbuseIPDBChecker
+ */
+class SettingsController extends ApiMutableModelControllerBase
 {
-    public function getAction()
-    {
-        return $this->getBase('abuseipdbchecker');
-    }
-    
-    public function setAction()
-    {
-        return $this->setBase('abuseipdbchecker');
-    }
-
-    public function searchAction()
-    {
-        return $this->searchBase('abuseipdbchecker');
-    }
+    protected static $internalModelClass = 'OPNsense\AbuseIPDBChecker\AbuseIPDBChecker';
+    protected static $internalModelName = 'abuseipdbchecker';
 }
