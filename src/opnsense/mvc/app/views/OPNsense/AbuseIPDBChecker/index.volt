@@ -20,22 +20,25 @@
 
             console.log("Save button clicked");
     
-            // Create a single object with the correct structure
-            var formData = {};
+            // Show saving indicator
+            $("#saveAct_progress").addClass("fa fa-spinner fa-pulse");
             
-            // Get data from each form
-            var generalData = getFormData('frm_general');
-            var networkData = getFormData('frm_network');
-            var apiData = getFormData('frm_api');
-            var emailData = getFormData('frm_email');
+            // Build a complete data object from all forms
+            var data = {
+                'abuseipdbchecker': {}
+            };
             
-            // Combine all data into a single properly structured object
-            formData['abuseipdbchecker'] = {};
-            if (generalData.general) formData['abuseipdbchecker']['general'] = generalData.general;
-            if (networkData.network) formData['abuseipdbchecker']['network'] = networkData.network;
-            if (apiData.api) formData['abuseipdbchecker']['api'] = apiData.api;
-            if (emailData.email) formData['abuseipdbchecker']['email'] = emailData.email;
-            
+            // Extract data from each form and merge into one object
+            ["general", "network", "api", "email"].forEach(function(section) {
+                // Get the form data for this section
+                var sectionData = getFormData("frm_" + section);
+                
+                // Merge it into our complete data object if it exists
+                if (sectionData && sectionData[section]) {
+                    data.abuseipdbchecker[section] = sectionData[section];
+                }
+            });
+                    
             console.log("Complete form data:", formData);
 
             // Validate API key if enabled
@@ -57,42 +60,32 @@
                 return;
             }
             
-            // Now send the combined data
-            // Send the data to the server
+            // Send a single API call with the complete data
             ajaxCall(
                 "/api/abuseipdbchecker/settings/set",
-                formData,
-                function(data, status) {
-                    if (data.result === "saved") {
-                        // Show success message
+                data,
+                function(response, status) {
+                    // Hide the spinner
+                    $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
+                    
+                    if (response.result === "saved") {
+                        // Success notification
                         BootstrapDialog.show({
                             type: BootstrapDialog.TYPE_SUCCESS,
                             title: "{{ lang._('Settings saved') }}",
-                            message: "{{ lang._('The settings have been saved successfully.') }}",
-                            buttons: [{
-                                label: "{{ lang._('Close') }}",
-                                action: function(dialogRef) {
-                                    dialogRef.close();
-                                }
-                            }]
+                            message: "{{ lang._('All settings have been saved successfully.') }}"
                         });
                         
-                        // Refresh data
+                        // Refresh data displays
                         updateStats();
                         updateThreats();
                         updateLogs();
                     } else {
-                        // Show error message
+                        // Error notification
                         BootstrapDialog.show({
                             type: BootstrapDialog.TYPE_DANGER,
                             title: "{{ lang._('Error') }}",
-                            message: "{{ lang._('There was an error saving the settings.') }}",
-                            buttons: [{
-                                label: "{{ lang._('Close') }}",
-                                action: function(dialogRef) {
-                                    dialogRef.close();
-                                }
-                            }]
+                            message: "{{ lang._('There was an error saving settings.') }}"
                         });
                     }
                 }
