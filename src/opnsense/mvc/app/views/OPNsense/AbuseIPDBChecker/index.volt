@@ -31,15 +31,13 @@
             // Extract data from each form and merge into one object
             ["general", "network", "api", "email"].forEach(function(section) {
                 // Get the form data for this section
-                var sectionData = getFormData("frm_" + section);
+                var formData = getFormData("frm_" + section);
                 
                 // Merge it into our complete data object if it exists
-                if (sectionData && sectionData[section]) {
-                    data.abuseipdbchecker[section] = sectionData[section];
+                if (formData && formData[section]) {
+                    data.abuseipdbchecker[section] = formData[section];
                 }
             });
-                    
-            console.log("Complete form data:", formData);
 
             // Validate API key if enabled
             var enabled = $("#abuseipdbchecker\\.general\\.Enabled").prop('checked');
@@ -60,15 +58,17 @@
                 return;
             }
             
+            // Now send the combined data
+            // Send the data to the server
             // Send a single API call with the complete data
             ajaxCall(
                 "/api/abuseipdbchecker/settings/set",
                 data,
-                function(response, status) {
+                function(data, status) {
                     // Hide the spinner
                     $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
                     
-                    if (response.result === "saved") {
+                    if (data.result === "saved") {
                         // Success notification
                         BootstrapDialog.show({
                             type: BootstrapDialog.TYPE_SUCCESS,
