@@ -30,12 +30,11 @@
             
             // Extract data from each form and merge into one object
             ["general", "network", "api", "email"].forEach(function(section) {
-                // Get the form data for this section
                 var formData = getFormData("frm_" + section);
                 
-                // Merge it into our complete data object if it exists
-                if (formData && formData[section]) {
-                    data.abuseipdbchecker[section] = formData[section];
+                // The key here is to ensure we're getting the right structure
+                if (formData && formData.abuseipdbchecker && formData.abuseipdbchecker[section]) {
+                    data.abuseipdbchecker[section] = formData.abuseipdbchecker[section];
                 }
             });
 
@@ -125,10 +124,14 @@
             $("#testResultTable").addClass("hidden");
             
             // Call API
-            ajaxCall(
-                "/api/abuseipdbchecker/service/testip",
-                {"ip": ip},
-                function(data, status) {
+            // Replace the ajaxCall section with:
+            $.ajax({
+                url: "/api/abuseipdbchecker/service/testip",
+                type: "POST",
+                data: JSON.stringify({"ip": ip}),
+                contentType: "application/json",
+                dataType: "json",
+                success: function(data, status) {
                     $("#testIpBtn").prop("disabled", false);
                     
                     if (data && data.status === 'ok') {
@@ -164,8 +167,15 @@
                             .text(data.message || "{{ lang._('Error testing IP address') }}");
                         $("#testResultTable").addClass("hidden");
                     }
+                },
+                error: function(xhr, status, error) {
+                    $("#testIpBtn").prop("disabled", false);
+                    $("#testResultAlert").removeClass("alert-info alert-success alert-warning")
+                        .addClass("alert-danger")
+                        .text("{{ lang._('Error communicating with server') }}");
+                    $("#testResultTable").addClass("hidden");
                 }
-            );
+            });
         });
         
         // Functions to update the dashboard data

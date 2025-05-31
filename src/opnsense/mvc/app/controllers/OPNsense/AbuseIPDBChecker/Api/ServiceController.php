@@ -107,7 +107,22 @@ class ServiceController extends ApiMutableServiceControllerBase
      */
     public function testipAction()
     {
-        $ip = $this->request->getPost('ip', 'string', '');
+        if (!$this->request->isPost()) {
+            return ["status" => "failed", "message" => "Method not allowed"];
+        }
+        
+        // Get the raw POST data first
+        $rawData = $this->request->getRawBody();
+        $postData = json_decode($rawData, true);
+        
+        // Try multiple ways to get the IP
+        $ip = '';
+        if (isset($postData['ip'])) {
+            $ip = $postData['ip'];
+        } elseif ($this->request->hasPost('ip')) {
+            $ip = $this->request->getPost('ip', 'string', '');
+        }
+        
         if (empty($ip)) {
             return ["status" => "failed", "message" => "IP address is required"];
         }

@@ -1,0 +1,100 @@
+# AbuseIPDB Checker Plugin Documentation
+
+## Project Overview
+
+The **AbuseIPDB Checker** is an OPNsense plugin that monitors external IP addresses attempting to connect to your internal network and checks them against the AbuseIPDB reputation database to identify potential threats.
+
+## Core Architecture
+
+### 1. **MVC Structure**
+- **Model**: `AbuseIPDBChecker.xml` - Configuration schema with sections for general, network, api, and email settings
+- **View**: `index.volt` - Multi-tab interface for configuration, statistics, threats, logs, and IP testing
+- **Controller**: Multiple controllers handling different aspects (IndexController, ServiceController, SettingsController)
+
+### 2. **Key Components**
+
+#### **Configuration Management**
+- **Location**: `/usr/local/etc/abuseipdbchecker/abuseipdbchecker.conf`
+- **Template**: `src/opnsense/service/templates/OPNsense/AbuseIPDBChecker/abuseipdbchecker.conf`
+- **Sections**: general, network, api, email settings
+- **Default Values**: 7-day check frequency, 80% threat threshold, 100 daily API calls limit
+
+#### **Core Script**
+- **Main Script**: `src/opnsense/scripts/AbuseIPDBChecker/checker.py`
+- **Database Setup**: `src/opnsense/scripts/AbuseIPDBChecker/setup_database.py`
+- **Database Location**: `/var/db/abuseipdbchecker/abuseipdb.db` (SQLite)
+- **Log Location**: `/var/log/abuseipdbchecker/abuseipdb.log`
+
+#### **Database Schema**
+- **checked_ips**: Tracks all IPs checked with timestamps and threat status
+- **threats**: Detailed information about malicious IPs
+- **stats**: System statistics (daily checks, total checks, last check time)
+
+#### **Service Integration**
+- **RC Script**: `/usr/local/etc/rc.d/abuseipdbchecker`
+- **Plugin Registration**: `/usr/local/etc/inc/plugins.inc.d/abuseipdbchecker.inc`
+- **Configd Actions**: `actions_abuseipdbchecker.conf` with start/stop/status/run/stats/threats/logs/testip/initdb
+
+### 3. **Data Flow Process**
+
+1. **Hourly Cron Job** → Triggers checker script
+2. **Log Parsing** → Analyzes `/var/log/filter.log` for external IPs
+3. **Database Check** → Verifies if IP was recently checked (respects check frequency)
+4. **API Query** → Checks new IPs against AbuseIPDB (respects daily limits)
+5. **Threat Assessment** → Compares abuse score against threshold
+6. **Email Notification** → Sends alerts for detected threats
+7. **Database Storage** → Updates IP records and statistics
+
+### 4. **Web Interface Features**
+
+#### **Settings Tabs**
+- **General**: Enable/disable, log file path, check frequency, score threshold, daily limits
+- **Network**: LAN subnets to monitor, ignored protocols
+- **API**: AbuseIPDB API key, endpoint, max age for reports
+- **Email**: SMTP configuration for threat notifications
+
+#### **Monitoring Tabs**
+- **Statistics**: Total IPs checked, threats detected, daily usage, last run time
+- **Recent Threats**: Table of detected malicious IPs with scores and details
+- **Logs**: Real-time log viewer with refresh capability
+- **Test IP**: Manual IP testing interface with detailed results
+
+### 5. **API Endpoints**
+
+#### **Service Controller** (`/api/abuseipdbchecker/service/`)
+- `status` - Service status
+- `start/stop/restart` - Service control
+- `run` - Manual check execution
+- `stats` - Usage statistics
+- `threats` - Recent threats list
+- `logs` - Log retrieval
+- `testip` - Single IP testing
+- `initdb` - Database initialization
+
+#### **Settings Controller** (`/api/abuseipdbchecker/settings/`)
+- `get` - Retrieve configuration
+- `set` - Save configuration
+
+### 6. **Security Features**
+
+- **Rate Limiting**: Respects AbuseIPDB API limits with daily check quotas
+- **Efficient Caching**: SQLite database prevents redundant API calls
+- **Configurable Thresholds**: Adjustable abuse score thresholds
+- **Network Filtering**: Monitors only external IPs, ignores internal traffic
+- **Protocol Filtering**: Configurable protocol exclusions (ICMP, IGMP by default)
+
+### 7. **Installation & Deployment**
+
+- **Package Structure**: Standard OPNsense plugin format with Makefile
+- **Post-Install**: Automated directory creation, permission setting, service registration
+- **Dependencies**: Python3, requests library, SQLite3
+- **Service Integration**: Full OPNsense service framework integration
+
+### 8. **Logging & Monitoring**
+
+- **Comprehensive Logging**: All operations logged with timestamps
+- **Error Handling**: Graceful degradation with informative error messages
+- **Statistics Tracking**: Daily/total usage counters
+- **Real-time Monitoring**: Web interface provides live status updates
+
+This plugin represents a production-ready security monitoring solution that efficiently integrates with OPNsense's architecture while providing comprehensive threat detection capabilities through the AbuseIPDB reputation service.
