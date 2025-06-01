@@ -2,193 +2,143 @@
 
 namespace OPNsense\AbuseIPDBChecker\Api;
 
-use OPNsense\Base\ApiMutableServiceControllerBase;
+use OPNsense\Base\ApiControllerBase;
 use OPNsense\Core\Backend;
-use OPNsense\Core\Config;
 
-class ServiceController extends ApiMutableServiceControllerBase
+class ServiceController extends ApiControllerBase
 {
-    protected static $internalServiceClass = '\OPNsense\AbuseIPDBChecker\AbuseIPDBChecker';
-    protected static $internalServiceTemplate = 'OPNsense/AbuseIPDBChecker';
-    protected static $internalServiceEnabled = 'general.Enabled';
-    protected static $internalServiceName = 'abuseipdbchecker';
-
-
     /**
-     * Ensure backend actions exist
+     * Get service status
+     * @return array
      */
-    public function reloadAction()
+    public function statusAction()
     {
-        if ($this->request->isPost()) {
-            // First apply template
-            $backend = new Backend();
-            $bckresult = trim($backend->configdRun('template reload OPNsense/AbuseIPDBChecker'));
-            return array("status" => $bckresult);
-        }
-        return array("status" => "failed");
-    }
-
-    /**
-     * Initialize database if needed
-     */
-    public function initdbAction()
-    {
-        if ($this->request->isPost()) {
-            $backend = new Backend();
-            $response = $backend->configdRun("abuseipdbchecker initdb");
-            $bckresult = json_decode(trim($response), true);
-            if ($bckresult !== null) {
-                return $bckresult;
-            }
-        }
-        return ["status" => "failed", "message" => "Unable to initialize database"];
-    }
-
-    /**
-     * Get logs
-     */
-    public function logsAction()
-    {
+        $this->sessionClose();
+        
         $backend = new Backend();
-        $response = $backend->configdRun("abuseipdbchecker logs");
-        $bckresult = json_decode(trim($response), true);
-        if ($bckresult !== null) {
-            return $bckresult;
+        $response = trim($backend->configdRun("abuseipdbchecker status"));
+        
+        // OPNsense expects this exact format for service display
+        if (strpos($response, 'is running') !== false) {
+            return array(
+                "status" => "running",
+                "running" => 1
+            );
+        } else {
+            return array(
+                "status" => "stopped", 
+                "running" => 0
+            );
         }
-        return ["status" => "failed", "message" => "Unable to retrieve logs"];
     }
 
     /**
-     * Run a manual check
+     * Start service
+     * @return array
      */
-    public function runAction()
+    public function startAction()
     {
+        $this->sessionClose();
+        
         if ($this->request->isPost()) {
             $backend = new Backend();
-            $response = $backend->configdRun("abuseipdbchecker run");
-            $bckresult = json_decode(trim($response), true);
-            if ($bckresult !== null) {
-                return $bckresult;
-            }
+            $backend->configdRun('template reload OPNsense/AbuseIPDBChecker');
+            $backend->configdRun("abuseipdbchecker start");
+            
+            sleep(2);
+            return $this->statusAction();
         }
-        return ["status" => "failed", "message" => "Unable to run manual check"];
+        return ["status" => "failed"];
     }
 
     /**
-     * Get statistics
+     * Stop service
+     * @return array
      */
+    public function stopAction()
+    {
+        $this->sessionClose();
+        
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $backend->configdRun("abuseipdbchecker stop");
+            
+            sleep(1);
+            return $this->statusAction();
+        }
+        return ["status" => "failed"];
+    }
+
+    /**
+     * Restart service
+     * @return array
+     */
+    public function restartAction()
+    {
+        $this->sessionClose();
+        
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $backend->configdRun('template reload OPNsense/AbuseIPDBChecker');
+            $backend->configdRun("abuseipdbchecker restart");
+            
+            sleep(2);
+            return $this->statusAction();
+        }
+        return ["status" => "failed"];
+    }
+
+    // Keep all other methods unchanged...
     public function statsAction()
     {
+        $this->sessionClose();
         $backend = new Backend();
         $response = $backend->configdRun("abuseipdbchecker stats");
-        $bckresult = json_decode(trim($response), true);
-        if ($bckresult !== null) {
-            return $bckresult;
-        }
-        return ["status" => "failed", "message" => "Unable to retrieve statistics"];
+        $result = json_decode(trim($response), true);
+        return $result ?: ["status" => "failed", "message" => "Unable to retrieve statistics"];
     }
 
-    /**
-     * Get recent threats
-     */
     public function threatsAction()
     {
+        $this->sessionClose();
         $backend = new Backend();
         $response = $backend->configdRun("abuseipdbchecker threats");
-        $bckresult = json_decode(trim($response), true);
-        if ($bckresult !== null) {
-            return $bckresult;
-        }
-        return ["status" => "failed", "message" => "Unable to retrieve recent threats"];
+        $result = json_decode(trim($response), true);
+        return $result ?: ["status" => "failed", "message" => "Unable to retrieve threats"];
     }
-    
-    /**
-     * Test a specific IP
-     */
+
+    public function logsAction()
+    {
+        $this->sessionClose();
+        $backend = new Backend();
+        $response = $backend->configdRun("abuseipdbchecker logs");
+        $result = json_decode(trim($response), true);
+        return $result ?: ["status" => "failed", "message" => "Unable to retrieve logs"];
+    }
+
     public function testipAction()
     {
+        $this->sessionClose();
+        
         $ip = $this->request->getPost('ip', 'string', '');
         if (empty($ip)) {
             return ["status" => "failed", "message" => "IP address is required"];
         }
         
-        // Basic IP validation
         if (!filter_var($ip, FILTER_VALIDATE_IP)) {
             return ["status" => "failed", "message" => "Invalid IP address format"];
         }
         
-        // Ensure directories exist
-        $this->ensureDirectories();
-        
-        // Log the command for debugging
-        $command = "abuseipdbchecker testip {$ip}";
-        syslog(LOG_NOTICE, "AbuseIPDBChecker: Executing command: {$command}");
-        
         $backend = new Backend();
-        $response = $backend->configdRun($command);
+        $response = $backend->configdRun("abuseipdbchecker testip {$ip}");
+        $result = json_decode(trim($response), true);
         
-        // Debug: Log the raw response
-        syslog(LOG_NOTICE, "AbuseIPDBChecker: Raw response: " . substr($response, 0, 200));
-        
-        // Clean the response more carefully
-        $response = trim($response);
-        
-        // Try to decode JSON
-        $bckresult = json_decode($response, true);
-        if ($bckresult !== null) {
-            syslog(LOG_NOTICE, "AbuseIPDBChecker: Successfully parsed JSON response");
-            return $bckresult;
-        }
-        
-        // If JSON decode failed, try to execute directly
-        syslog(LOG_ERR, "AbuseIPDBChecker: JSON decode failed, trying direct execution");
-        $scriptPath = "/usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker/checker.py";
-        $output = [];
-        $returnCode = 0;
-        
-        exec("python3 {$scriptPath} testip {$ip} 2>&1", $output, $returnCode);
-        
-        if ($returnCode === 0 && !empty($output)) {
-            // Get the last line as it's likely the JSON output
-            $jsonOutput = end($output);
-            $bckresult = json_decode($jsonOutput, true);
-            if ($bckresult !== null) {
-                syslog(LOG_NOTICE, "AbuseIPDBChecker: Direct execution successful");
-                return $bckresult;
-            }
-        }
-        
-        // If all else fails, create a default response that indicates an error
-        return [
+        return $result ?: [
             "status" => "error",
-            "message" => "Could not parse response from backend. Check logs for details.",
+            "message" => "Could not parse response",
             "ip" => $ip,
             "is_threat" => false,
             "abuse_score" => 0
         ];
-    }
-
-    /**
-     * Helper function to ensure required directories exist
-     */
-    private function ensureDirectories()
-    {
-        $dirs = [
-            '/var/log/abuseipdbchecker' => 0755,
-            '/var/db/abuseipdbchecker' => 0755,
-            '/usr/local/etc/abuseipdbchecker' => 0755
-        ];
-        
-        foreach ($dirs as $dir => $mode) {
-            if (!file_exists($dir)) {
-                mkdir($dir, $mode, true);
-                chmod($dir, $mode);
-            }
-        }
-    }
-
-    protected function reconfigureForceRestart()
-    {
-        return 0;
     }
 }

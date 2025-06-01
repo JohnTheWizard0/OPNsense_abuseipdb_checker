@@ -6,4 +6,11 @@
             <pattern>api/abuseipdbchecker/*</pattern>
         </patterns>
     </page-user-abuseipdbchecker>
+    <page-user-abuseipdbchecker-api>
+        <name>Services: AbuseIPDB Checker API</name>
+        <patterns>
+            <pattern>api/abuseipdbchecker/service/*</pattern>
+            <pattern>api/abuseipdbchecker/settings/*</pattern>
+        </patterns>
+    </page-user-abuseipdbchecker-api>
 </acl>

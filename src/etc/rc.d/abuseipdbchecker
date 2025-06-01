@@ -15,63 +15,129 @@ rcvar=abuseipdbchecker_enable
 load_rc_config $name
 
 : ${abuseipdbchecker_enable="NO"}
+: ${abuseipdbchecker_pidfile="/var/run/${name}.pid"}
+: ${abuseipdbchecker_logfile="/var/log/${name}/${name}.log"}
 
-start_cmd="abuseipdbchecker_start"
-stop_cmd="abuseipdbchecker_stop"
-status_cmd="abuseipdbchecker_status"
+pidfile=${abuseipdbchecker_pidfile}
+command="/usr/local/bin/python3"
+command_args="/usr/local/opnsense/scripts/AbuseIPDBChecker/checker.py daemon"
+command_interpreter=""
 
-abuseipdbchecker_start()
+start_precmd="abuseipdbchecker_prestart"
+stop_postcmd="abuseipdbchecker_poststop"
+
+abuseipdbchecker_prestart()
 {
-    if [ ! -f /var/run/${name}.pid ]; then
-        echo "Starting ${name}."
-        
-        # Run post-install script to ensure correct permissions
-        if [ -f /usr/local/opnsense/scripts/AbuseIPDBChecker/post_install.sh ]; then
-            /usr/local/opnsense/scripts/AbuseIPDBChecker/post_install.sh
-            touch /root/FLAG1
-        fi
-        touch /root/FLAG2
-        
-        # Initialize database if it doesn't exist
-        if [ ! -f /var/db/abuseipdbchecker/abuseipdb.db ]; then
-            /usr/local/opnsense/scripts/AbuseIPDBChecker/setup_database.py
-        fi
-        
-        # Run initial check
-        /usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker/checker.py check > /dev/null 2>&1
-        echo "1" > /var/run/${name}.pid
-        
-        # Add to cron for hourly checks if not already there
-        crontab -l 2>/dev/null | grep -q "abuseipdbchecker" || (
-            crontab -l 2>/dev/null; 
-            echo "0 * * * * /usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker/checker.py check > /dev/null 2>&1"
-        ) | crontab -
-    else
-        echo "${name} already running."
+    # Kill any existing processes
+    /usr/bin/pkill -f "checker.py daemon" 2>/dev/null || true
+    
+    # Remove stale PID file
+    if [ -f ${pidfile} ]; then
+        rm -f ${pidfile}
+    fi
+    
+    # Setup directories
+    /bin/mkdir -p /var/log/abuseipdbchecker
+    /bin/mkdir -p /var/db/abuseipdbchecker
+    /bin/mkdir -p /usr/local/etc/abuseipdbchecker
+    
+    /bin/chmod 777 /var/log/abuseipdbchecker
+    /bin/chmod 777 /var/db/abuseipdbchecker
+    
+    # Initialize database
+    if [ ! -f /var/db/abuseipdbchecker/abuseipdb.db ]; then
+        /usr/local/bin/python3 /usr/local/opnsense/scripts/AbuseIPDBChecker/setup_database.py
+    fi
+    
+    # Create symlink
+    if [ ! -L /usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker ]; then
+        /bin/mkdir -p /usr/local/opnsense/scripts/OPNsense
+        /bin/ln -sf /usr/local/opnsense/scripts/AbuseIPDBChecker /usr/local/opnsense/scripts/OPNsense/
     fi
 }
 
+abuseipdbchecker_poststop()
+{
+    # Kill processes
+    /usr/bin/pkill -f "checker.py daemon" 2>/dev/null || true
+    
+    # Clean PID file
+    if [ -f ${pidfile} ]; then
+        rm -f ${pidfile}
+    fi
+}
+
+# Custom start function that creates PID file
+abuseipdbchecker_start()
+{
+    if [ -f ${pidfile} ]; then
+        echo "${name} already running? (pid=$(cat ${pidfile}))."
+        return 1
+    fi
+    
+    echo "Starting ${name}."
+    
+    # Start daemon and capture PID
+    /usr/sbin/daemon -p ${pidfile} ${command} ${command_args}
+    
+    # Wait a moment and verify
+    sleep 2
+    if [ -f ${pidfile} ] && kill -0 $(cat ${pidfile}) 2>/dev/null; then
+        echo "${name} started successfully."
+        return 0
+    else
+        echo "Failed to start ${name}."
+        return 1
+    fi
+}
+
+# Custom stop function
 abuseipdbchecker_stop()
 {
-    if [ -f /var/run/${name}.pid ]; then
+    if [ -f ${pidfile} ]; then
         echo "Stopping ${name}."
-        rm -f /var/run/${name}.pid
+        kill $(cat ${pidfile}) 2>/dev/null
         
-        # Remove from cron
-        crontab -l 2>/dev/null | grep -v "abuseipdbchecker" | crontab -
+        # Wait for process to die
+        for i in 1 2 3 4 5; do
+            if ! kill -0 $(cat ${pidfile}) 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+        
+        # Force kill if still running
+        if kill -0 $(cat ${pidfile}) 2>/dev/null; then
+            kill -9 $(cat ${pidfile}) 2>/dev/null
+        fi
+        
+        rm -f ${pidfile}
+        echo "${name} stopped."
     else
         echo "${name} not running."
     fi
 }
 
+# Custom status function
 abuseipdbchecker_status()
 {
-    if [ -f /var/run/${name}.pid ]; then
-        echo "${name} is running."
+    if [ -f ${pidfile} ]; then
+        if kill -0 $(cat ${pidfile}) 2>/dev/null; then
+            echo "${name} is running as pid $(cat ${pidfile})."
+            return 0
+        else
+            echo "${name} is not running (stale pid file)."
+            rm -f ${pidfile}
+            return 1
+        fi
     else
         echo "${name} is not running."
         return 1
     fi
 }
+
+start_cmd="abuseipdbchecker_start"
+stop_cmd="abuseipdbchecker_stop"
+status_cmd="abuseipdbchecker_status"
 
 run_rc_command "$1"

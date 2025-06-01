@@ -228,6 +228,31 @@
                 }
             });
         }
+
+        // Force service status refresh every 3 seconds
+        function refreshServiceStatus() {
+            $.ajax({
+                url: '/api/abuseipdbchecker/service/status',
+                type: 'POST',
+                dataType: 'json',
+                success: function(data) {
+                    if (data && data.status === 'running') {
+                        // Force GUI to show running state
+                        $('.service-abuseipdbchecker .service-status').removeClass('text-danger').addClass('text-success').text('Running');
+                        $('.service-abuseipdbchecker .btn-start').prop('disabled', true);
+                        $('.service-abuseipdbchecker .btn-stop').prop('disabled', false);
+                    } else {
+                        $('.service-abuseipdbchecker .service-status').removeClass('text-success').addClass('text-danger').text('Stopped');
+                        $('.service-abuseipdbchecker .btn-start').prop('disabled', false);
+                        $('.service-abuseipdbchecker .btn-stop').prop('disabled', true);
+                    }
+                }
+            });
+        }
+
+        // Start polling
+        setInterval(refreshServiceStatus, 3000);
+        refreshServiceStatus(); // Initial call
         
         // Add tab change event handlers
         $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {

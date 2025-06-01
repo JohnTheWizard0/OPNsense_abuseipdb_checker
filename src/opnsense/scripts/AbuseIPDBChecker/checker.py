@@ -853,6 +853,87 @@ def test_ip(ip_address):
         if conn:
             conn.close()
 
+def run_daemon():
+    """Run the checker in daemon mode with 5-second polling"""
+    log_message("AbuseIPDB Checker daemon starting up - PID: " + str(os.getpid()))
+    
+    # Set up signal handlers for graceful shutdown
+    import signal
+    
+    def signal_handler(signum, frame):
+        log_message(f"Received signal {signum}, stopping daemon gracefully")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    poll_count = 0
+    
+    while True:
+        try:
+            poll_count += 1
+            log_message(f"=== Daemon Poll #{poll_count} - PID {os.getpid()} ===")
+            log_message("Polling for external IPs from firewall logs...")
+            
+            # Read configuration
+            config = read_config()
+            log_message(f"Configuration loaded - Enabled: {config['enabled']}")
+            
+            if not config['enabled']:
+                log_message("Service is disabled in configuration, continuing to poll...")
+                time.sleep(5)
+                continue
+            
+            # Get external IPs from log (for debugging, we'll always show this)
+            try:
+                external_ips = parse_log_for_ips(config)
+                
+                if external_ips:
+                    log_message(f"Found {len(external_ips)} external IPs from firewall logs")
+                    # Show first few IPs for debugging
+                    sample_ips = list(external_ips)[:3]
+                    for ip in sample_ips:
+                        log_message(f"  - External IP detected: {ip}")
+                    if len(external_ips) > 3:
+                        log_message(f"  - ... and {len(external_ips) - 3} more IPs")
+                        
+                    # For debugging, we'll show what we would do
+                    log_message("Would check these IPs against AbuseIPDB (API calls disabled in daemon mode)")
+                else:
+                    log_message("No external IPs found in current firewall logs")
+                    
+            except Exception as e:
+                log_message(f"Error parsing firewall logs: {str(e)}")
+            
+            # Check database stats
+            try:
+                if os.path.exists(DB_FILE):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute('SELECT COUNT(*) FROM checked_ips')
+                    total_ips = c.fetchone()[0]
+                    c.execute('SELECT COUNT(*) FROM threats')
+                    total_threats = c.fetchone()[0]
+                    conn.close()
+                    log_message(f"Database stats: {total_ips} IPs checked, {total_threats} threats detected")
+                else:
+                    log_message("Database not yet initialized")
+            except Exception as e:
+                log_message(f"Error reading database stats: {str(e)}")
+            
+            log_message("Poll completed successfully, sleeping for 5 seconds...")
+            time.sleep(5)
+            
+        except KeyboardInterrupt:
+            log_message("Received keyboard interrupt, stopping daemon")
+            break
+        except Exception as e:
+            log_message(f"Error in daemon loop: {str(e)}")
+            log_message("Continuing daemon operation...")
+            time.sleep(5)
+    
+    log_message("AbuseIPDB Checker daemon shutting down")
+
 def main():
     """Main entry point"""
     # First thing: log startup and ensure directories
@@ -869,7 +950,7 @@ def main():
         
         # Parse command line arguments
         parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
-        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip'], 
+        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'daemon'], 
                            help='Operation mode')
         parser.add_argument('ip', nargs='?', help='IP address to test (only for testip mode)')
         
@@ -904,12 +985,17 @@ def main():
             else:
                 log_message(f"Testing IP: {args.ip}")
                 result = test_ip(args.ip)
+        elif args.mode == 'daemon':
+            # Don't return JSON for daemon mode, just run
+            log_message("Starting daemon mode")
+            run_daemon()
+            return
         else:
             # Should never get here due to argparse, but just in case
             log_message(f"Invalid mode: {args.mode}")
             result = {'status': 'error', 'message': f'Invalid mode: {args.mode}'}
         
-        # Output result as JSON with no extra whitespace
+        # Output result as JSON with no extra whitespace (not for daemon mode)
         output = json.dumps(result, separators=(',', ':'))
         print(output)
         log_message(f"Operation completed with status: {result.get('status', 'unknown')}")
