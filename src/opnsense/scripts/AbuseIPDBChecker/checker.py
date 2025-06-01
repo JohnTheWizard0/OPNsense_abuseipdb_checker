@@ -258,7 +258,149 @@ def is_ip_in_networks(ip, networks):
     except ValueError:
         return False
 
-def parse_log_for_ips(config):
+def list_external_to_internal_connections():
+    """List ALL external→internal connections with database cross-reference"""
+    config = read_config()
+    
+    if not os.path.exists(config['log_file']):
+        return {'status': 'error', 'message': f"Log file not found: {config['log_file']}"}
+    
+    # Convert LAN subnets to network objects
+    lan_networks = []
+    for subnet in config['lan_subnets']:
+        try:
+            lan_networks.append(ipaddress.ip_network(subnet.strip()))
+        except ValueError:
+            continue
+    
+    connections = []
+    unique_external_ips = set()
+    
+    try:
+        with open(config['log_file'], 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()[-500:]  # Last 500 lines for more comprehensive view
+            
+            for line in lines:
+                if 'filterlog' not in line:
+                    continue
+                
+                try:
+                    # Parse firewall log entry
+                    if '] ' in line:
+                        csv_part = line.split('] ', 1)[1]
+                        fields = csv_part.split(',')
+                        
+                        if len(fields) < 20:
+                            continue
+                        
+                        # Extract fields
+                        timestamp = line.split(']')[0].replace('[', '').strip()
+                        action = fields[6].strip()
+                        ip_version = fields[8].strip()
+                        
+                        # Only IPv4
+                        if ip_version != '4':
+                            continue
+                        
+                        # Get IPs and ports
+                        src_ip = fields[18].strip() if len(fields) > 18 else ''
+                        dst_ip = fields[19].strip() if len(fields) > 19 else ''
+                        src_port = fields[20].strip() if len(fields) > 20 else ''
+                        dst_port = fields[21].strip() if len(fields) > 21 else ''
+                        
+                        if not src_ip or not dst_ip:
+                            continue
+                        
+                        # Parse IP addresses
+                        src_ip_obj = ipaddress.ip_address(src_ip)
+                        dst_ip_obj = ipaddress.ip_address(dst_ip)
+                        
+                        # Skip invalid source IPs
+                        if (src_ip_obj.is_loopback or src_ip_obj.is_multicast or 
+                            src_ip_obj.is_reserved or src_ip_obj.is_link_local):
+                            continue
+                        
+                        # Check if source is external
+                        src_is_external = not src_ip_obj.is_private
+                        for network in lan_networks:
+                            if src_ip_obj in network:
+                                src_is_external = False
+                                break
+                        
+                        # Check if destination is internal
+                        dst_is_internal = dst_ip_obj.is_private
+                        for network in lan_networks:
+                            if dst_ip_obj in network:
+                                dst_is_internal = True
+                                break
+                        
+                        # Capture ALL external→internal connections
+                        if src_is_external and dst_is_internal:
+                            unique_external_ips.add(src_ip)
+                            
+                            connection = {
+                                'timestamp': timestamp,
+                                'external_ip': src_ip,
+                                'internal_ip': dst_ip,
+                                'external_port': src_port,
+                                'internal_port': dst_port,
+                                'action': action
+                            }
+                            connections.append(connection)
+                            
+                except Exception:
+                    continue
+    
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error reading log: {str(e)}'}
+    
+    # Cross-reference with database
+    db_status = {}
+    if os.path.exists(DB_FILE):
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            
+            for ip in unique_external_ips:
+                c.execute('SELECT is_threat, last_checked FROM checked_ips WHERE ip = ?', (ip,))
+                row = c.fetchone()
+                if row:
+                    db_status[ip] = {
+                        'checked': True,
+                        'threat': bool(row['is_threat']),
+                        'last_checked': row['last_checked']
+                    }
+                else:
+                    db_status[ip] = {'checked': False, 'threat': None, 'last_checked': 'Never'}
+            
+            conn.close()
+        except Exception:
+            pass
+    
+    # Remove duplicates and sort by timestamp
+    unique_connections = []
+    seen = set()
+    
+    for conn in reversed(connections):  # Most recent first
+        key = f"{conn['external_ip']}:{conn['internal_ip']}:{conn['internal_port']}"
+        if key not in seen:
+            seen.add(key)
+            # Add database status
+            ip = conn['external_ip']
+            conn['db_status'] = db_status.get(ip, {'checked': False, 'threat': None})
+            unique_connections.append(conn)
+    
+    return {
+        'status': 'ok',
+        'total_connections': len(unique_connections),
+        'unique_external_ips': len(unique_external_ips),
+        'connections': unique_connections[:50],  # Show top 50
+        'external_ips_summary': dict(list(db_status.items())[:10]),
+        'message': f'Found {len(unique_connections)} unique connections from {len(unique_external_ips)} external IPs'
+    }
+
+def parse_log_for_ips(config, recent_only=False):
     """Parse OPNsense firewall log for external IPs"""
     external_ips = set()
     
@@ -278,293 +420,128 @@ def parse_log_for_ips(config):
     log_message(f"Parsing OPNsense log file: {config['log_file']}")
     
     try:
+        with open(config['log_file'], 'r', encoding='utf-8', errors='ignore') as f:
+            if recent_only:
+                # For External IPs tab - only recent activity (last 1000 lines)
+                lines = f.readlines()
+                lines = lines[-1000:] if len(lines) > 1000 else lines
+            else:
+                # For full checking - process entire file
+                lines = f.readlines()
+        
         line_count = 0
         parsed_entries = 0
         
-        with open(config['log_file'], 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                line_count += 1
-                line = line.strip()
-                
-                if not line or 'filterlog' not in line:
+        for line in lines:
+            line_count += 1
+            line = line.strip()
+            
+            if not line or 'filterlog' not in line:
+                continue
+            
+            try:
+                # Extract CSV data after syslog header
+                if '] ' in line:
+                    csv_part = line.split('] ', 1)[1]
+                else:
                     continue
                 
-                try:
-                    # Extract the structured log data after the syslog header
-                    if '] ' in line:
-                        csv_part = line.split('] ', 1)[1]
-                    else:
-                        continue
-                    
-                    # Split CSV data
-                    fields = csv_part.split(',')
-                    
-                    # Ensure we have enough fields
-                    if len(fields) < 20:
-                        continue
-                    
-                    # Correct field positions for OPNsense/pfSense format
-                    action = fields[6].strip() if len(fields) > 6 else ''
-                    direction = fields[7].strip() if len(fields) > 7 else ''
-                    ip_version = fields[8].strip() if len(fields) > 8 else ''
-                    
-                    # Only process IPv4 for now
-                    if ip_version != '4':
-                        continue
-                    
-                    # Skip blocked connections if configured
-                    if config['ignore_blocked_connections'] and action.lower() == 'block':
-                        continue
-                    
-                    # For IPv4, protocol is at position 15, src_ip varies by protocol
-                    if len(fields) > 15:
-                        try:
-                            proto_num = int(fields[15].strip())
-                            
-                            # Skip ignored protocols by number
-                            proto_name = ''
-                            if proto_num == 1:
-                                proto_name = 'icmp'
-                            elif proto_num == 2:
-                                proto_name = 'igmp'
-                            elif proto_num == 6:
-                                proto_name = 'tcp'
-                            elif proto_num == 17:
-                                proto_name = 'udp'
-                            else:
-                                proto_name = str(proto_num)
-                            
-                            if proto_name.lower() in [p.lower() for p in config['ignore_protocols']]:
-                                continue
-                            
-                            # Use same field positions as debug function (which works correctly)
-                            if len(fields) > 19:
-                                proto = fields[15].strip() if len(fields) > 15 else ''
-                                src_ip = fields[18].strip() if len(fields) > 18 else ''
-                                dst_ip = fields[19].strip() if len(fields) > 19 else ''
-                            else:
-                                continue
-
-                            # Convert protocol number to name for filtering
-                            try:
-                                proto_num = int(proto) if proto else 0
-                                proto_name = ''
-                                if proto_num == 1:
-                                    proto_name = 'icmp'
-                                elif proto_num == 2:
-                                    proto_name = 'igmp'
-                                elif proto_num == 6:
-                                    proto_name = 'tcp'
-                                elif proto_num == 17:
-                                    proto_name = 'udp'
-                                else:
-                                    proto_name = str(proto_num)
-                                
-                                if proto_name.lower() in [p.lower() for p in config['ignore_protocols']]:
-                                    continue
-                                    
-                            except (ValueError, IndexError):
-                                continue
-                                
-                        except (ValueError, IndexError):
-                            continue
-                    else:
-                        continue
-                    
-                    # We want: External Source IP → Internal Destination IP
-                    # Skip if no valid IPs
-                    if not src_ip or not dst_ip:
-                        continue
-
+                fields = csv_part.split(',')
+                
+                # Ensure we have enough fields
+                if len(fields) < 20:
+                    continue
+                
+                # Parse key fields
+                action = fields[6].strip() if len(fields) > 6 else ''
+                ip_version = fields[8].strip() if len(fields) > 8 else ''
+                
+                # Only process IPv4
+                if ip_version != '4':
+                    continue
+                
+                # Skip blocked connections if configured
+                if config['ignore_blocked_connections'] and action.lower() == 'block':
+                    continue
+                
+                # Parse protocol and IPs
+                if len(fields) > 19:
                     try:
-                        src_ip_obj = ipaddress.ip_address(src_ip)
-                        dst_ip_obj = ipaddress.ip_address(dst_ip)
+                        proto_num = int(fields[15].strip()) if fields[15].strip() else 0
+                        src_ip = fields[18].strip() if len(fields) > 18 else ''
+                        dst_ip = fields[19].strip() if len(fields) > 19 else ''
                         
-                        # Skip if source is localhost, multicast, reserved, or link-local
-                        if (src_ip_obj.is_loopback or src_ip_obj.is_multicast or 
-                            src_ip_obj.is_reserved or src_ip_obj.is_link_local):
+                        # Skip ignored protocols
+                        proto_name = ''
+                        if proto_num == 1:
+                            proto_name = 'icmp'
+                        elif proto_num == 2:
+                            proto_name = 'igmp'
+                        elif proto_num == 6:
+                            proto_name = 'tcp'
+                        elif proto_num == 17:
+                            proto_name = 'udp'
+                        else:
+                            proto_name = str(proto_num)
+                        
+                        if proto_name.lower() in [p.lower() for p in config['ignore_protocols']]:
                             continue
-                        
-                        # Check if source IP is external (not in any LAN subnet)
-                        src_is_external = not src_ip_obj.is_private
-                        for network in lan_networks:
-                            try:
-                                if src_ip_obj in network:
-                                    src_is_external = False
-                                    break
-                            except ValueError:
-                                continue
-                        
-                        # Check if destination IP is internal (in LAN subnets or private)
-                        dst_is_internal = dst_ip_obj.is_private
-                        for network in lan_networks:
-                            try:
-                                if dst_ip_obj in network:
-                                    dst_is_internal = True
-                                    break
-                            except ValueError:
-                                continue
-                        
-                        # Only process if: External Source → Internal Destination
-                        if src_is_external and dst_is_internal:
-                            external_ips.add(src_ip)
-                            parsed_entries += 1
                             
-                    except ValueError:
-                        # Invalid IP addresses
+                    except (ValueError, IndexError):
                         continue
-                        
-                except Exception as e:
-                    # Skip malformed lines
+                else:
                     continue
+                
+                # Skip if no valid IPs
+                if not src_ip or not dst_ip:
+                    continue
+
+                try:
+                    src_ip_obj = ipaddress.ip_address(src_ip)
+                    dst_ip_obj = ipaddress.ip_address(dst_ip)
+                    
+                    # Skip invalid source IPs
+                    if (src_ip_obj.is_loopback or src_ip_obj.is_multicast or 
+                        src_ip_obj.is_reserved or src_ip_obj.is_link_local):
+                        continue
+                    
+                    # Check if source IP is external
+                    src_is_external = not src_ip_obj.is_private
+                    for network in lan_networks:
+                        try:
+                            if src_ip_obj in network:
+                                src_is_external = False
+                                break
+                        except ValueError:
+                            continue
+                    
+                    # Check if destination IP is internal
+                    dst_is_internal = dst_ip_obj.is_private
+                    for network in lan_networks:
+                        try:
+                            if dst_ip_obj in network:
+                                dst_is_internal = True
+                                break
+                        except ValueError:
+                            continue
+                    
+                    # Only process: External Source → Internal Destination
+                    if src_is_external and dst_is_internal:
+                        external_ips.add(src_ip)
+                        parsed_entries += 1
+                        
+                except ValueError:
+                    continue
+                    
+            except Exception:
+                continue
         
-        log_message(f"Processed {line_count} lines, parsed {parsed_entries} entries, found {len(external_ips)} unique external IPs")
-        
-        # Log sample of found IPs for debugging
-        if external_ips:
-            sample_ips = sorted(list(external_ips))[:10]
-            log_message(f"Sample external IPs found: {', '.join(sample_ips)}")
-        else:
-            log_message("No external IPs found - check log file and field positions")
+        log_message(f"Processed {line_count} lines, found {len(external_ips)} unique external IPs")
         
     except Exception as e:
         log_message(f"Error reading log file: {str(e)}")
     
     return external_ips
-
-def debug_real_parsing():
-    """Debug current log parsing in real-time with detailed filtering steps"""
-    config = read_config()
-    
-    if not os.path.exists(config['log_file']):
-        return {'status': 'error', 'message': f"Log file not found: {config['log_file']}"}
-    
-    stat = os.stat(config['log_file'])
-    file_size = stat.st_size
-    file_modified = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-    
-    # Parse last 50 lines for debugging
-    debug_results = {
-        'file_info': {
-            'path': config['log_file'],
-            'size_mb': round(file_size / 1024 / 1024, 2),
-            'last_modified': file_modified
-        },
-        'config': {
-            'ignore_blocked': config['ignore_blocked_connections'],
-            'ignore_protocols': config['ignore_protocols'],
-            'lan_subnets': config['lan_subnets']
-        },
-        'processing_steps': [],
-        'filtered_out': {'blocked': [], 'protocols': [], 'private_ips': [], 'lan_ips': []},
-        'accepted_ips': []
-    }
-    
-    # Convert LAN subnets to network objects
-    lan_networks = []
-    for subnet in config['lan_subnets']:
-        try:
-            lan_networks.append(ipaddress.ip_network(subnet.strip()))
-        except ValueError:
-            continue
-    
-    # Read last 100 lines
-    with open(config['log_file'], 'r', encoding='utf-8', errors='ignore') as f:
-        lines = f.readlines()
-        recent_lines = lines[-100:] if len(lines) > 100 else lines
-    
-    processed_count = 0
-    for line in recent_lines:
-        line = line.strip()
-        if not line or 'filterlog' not in line:
-            continue
-            
-        try:
-            # Parse line
-            if '] ' in line:
-                csv_part = line.split('] ', 1)[1]
-                fields = csv_part.split(',')
-                
-                if len(fields) < 20:
-                    continue
-                
-                action = fields[6].strip()
-                direction = fields[7].strip()
-                proto = fields[16].strip()
-                src_ip = fields[18].strip()
-                dst_ip = fields[19].strip()
-                
-                step = {
-                    'line_num': processed_count + 1,
-                    'src_ip': src_ip,
-                    'dst_ip': dst_ip,
-                    'direction': direction,
-                    'action': action,
-                    'protocol': proto,
-                    'result': 'unknown'
-                }
-                
-                # Apply filters step by step - check source/destination instead of direction
-                if not src_ip or not dst_ip:
-                    step['result'] = 'skipped_no_ips'
-                else:
-                    try:
-                        src_ip_obj = ipaddress.ip_address(src_ip)
-                        dst_ip_obj = ipaddress.ip_address(dst_ip)
-                        
-                        # Check if source is external
-                        src_is_external = not src_ip_obj.is_private
-                        for network in lan_networks:
-                            if src_ip_obj in network:
-                                src_is_external = False
-                                break
-                        
-                        # Check if destination is internal  
-                        dst_is_internal = dst_ip_obj.is_private
-                        for network in lan_networks:
-                            if dst_ip_obj in network:
-                                dst_is_internal = True
-                                break
-                        
-                        if not src_is_external:
-                            step['result'] = 'skipped_src_not_external'
-                            debug_results['filtered_out']['private_ips'].append(src_ip)
-                        elif not dst_is_internal:
-                            step['result'] = 'skipped_dst_not_internal'
-                        elif config['ignore_blocked_connections'] and action.lower() == 'block':
-                            step['result'] = 'filtered_blocked'
-                            debug_results['filtered_out']['blocked'].append(src_ip)
-                        elif proto.lower() in [p.lower() for p in config['ignore_protocols']]:
-                            step['result'] = 'filtered_protocol'
-                            debug_results['filtered_out']['protocols'].append(src_ip)
-                        else:
-                            step['result'] = 'ACCEPTED'
-                            debug_results['accepted_ips'].append(src_ip)
-                            
-                    except ValueError:
-                        step['result'] = 'filtered_invalid_ip'
-                
-                debug_results['processing_steps'].append(step)
-                processed_count += 1
-                
-                if processed_count >= 20:  # Limit output
-                    break
-                    
-        except Exception as e:
-            continue
-    
-    # Get unique accepted IPs
-    debug_results['unique_accepted'] = list(set(debug_results['accepted_ips']))
-    debug_results['summary'] = {
-        'total_processed': processed_count,
-        'unique_external_ips': len(debug_results['unique_accepted']),
-        'blocked_filtered': len(set(debug_results['filtered_out']['blocked'])),
-        'protocol_filtered': len(set(debug_results['filtered_out']['protocols'])),
-        'private_filtered': len(set(debug_results['filtered_out']['private_ips'])),
-        'lan_filtered': len(set(debug_results['filtered_out']['lan_ips']))
-    }
-    
-    return {'status': 'ok', 'debug': debug_results}
 
 def debug_log_parsing():
     """Debug function to test OPNsense log parsing with detailed output"""
@@ -614,7 +591,7 @@ def debug_log_parsing():
                 parsed_entries.append({'error': str(e), 'line': line[:100]})
     
     # Run actual parsing
-    external_ips = parse_log_for_ips(config)
+    external_ips = parse_log_for_ips(config, recent_only=True)
     
     return {
         'status': 'ok',
@@ -1315,23 +1292,92 @@ def run_daemon():
     log_message("AbuseIPDB Checker daemon shutting down")
 
 def list_external_ips():
-    """List external IPs from firewall logs without checking them"""
+    """List external IPs from RECENT firewall logs only (last 500 lines)"""
     try:
         config = read_config()
         
         if not config['enabled']:
             return {'status': 'disabled', 'message': 'AbuseIPDBChecker is disabled'}
-            
-        # Get external IPs from log
-        external_ips = parse_log_for_ips(config)
         
-        if not external_ips:
-            return {'status': 'ok', 'message': 'No external IPs found', 'ips': []}
+        if not os.path.exists(config['log_file']):
+            return {'status': 'error', 'message': f"Log file not found: {config['log_file']}"}
         
-        # Convert set to sorted list for better display
+        # Convert LAN subnets to network objects
+        lan_networks = []
+        for subnet in config['lan_subnets']:
+            try:
+                lan_networks.append(ipaddress.ip_network(subnet.strip()))
+            except ValueError:
+                continue
+        
+        external_ips = set()
+        
+        # Read ONLY last 500 lines for recent activity
+        with open(config['log_file'], 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+            recent_lines = lines[-500:] if len(lines) > 500 else lines
+        
+        for line in recent_lines:
+            if 'filterlog' not in line:
+                continue
+                
+            try:
+                if '] ' in line:
+                    csv_part = line.split('] ', 1)[1]
+                    fields = csv_part.split(',')
+                    
+                    if len(fields) < 20:
+                        continue
+                    
+                    action = fields[6].strip()
+                    ip_version = fields[8].strip()
+                    
+                    if ip_version != '4':
+                        continue
+                    
+                    if config['ignore_blocked_connections'] and action.lower() == 'block':
+                        continue
+                    
+                    src_ip = fields[18].strip() if len(fields) > 18 else ''
+                    dst_ip = fields[19].strip() if len(fields) > 19 else ''
+                    
+                    if not src_ip or not dst_ip:
+                        continue
+                    
+                    try:
+                        src_ip_obj = ipaddress.ip_address(src_ip)
+                        dst_ip_obj = ipaddress.ip_address(dst_ip)
+                        
+                        if (src_ip_obj.is_loopback or src_ip_obj.is_multicast or 
+                            src_ip_obj.is_reserved or src_ip_obj.is_link_local):
+                            continue
+                        
+                        # Check if source is external
+                        src_is_external = not src_ip_obj.is_private
+                        for network in lan_networks:
+                            if src_ip_obj in network:
+                                src_is_external = False
+                                break
+                        
+                        # Check if destination is internal
+                        dst_is_internal = dst_ip_obj.is_private
+                        for network in lan_networks:
+                            if dst_ip_obj in network:
+                                dst_is_internal = True
+                                break
+                        
+                        # Only external→internal traffic
+                        if src_is_external and dst_is_internal:
+                            external_ips.add(src_ip)
+                            
+                    except ValueError:
+                        continue
+                        
+            except Exception:
+                continue
+        
+        # Convert to list and check database status
         ip_list = sorted(list(external_ips))
-        
-        # Check database for any existing information about these IPs
         results = []
         
         if os.path.exists(DB_FILE):
@@ -1340,7 +1386,6 @@ def list_external_ips():
             c = conn.cursor()
             
             for ip in ip_list:
-                # Check if IP exists in database
                 c.execute('SELECT last_checked, is_threat FROM checked_ips WHERE ip = ?', (ip,))
                 db_row = c.fetchone()
                 
@@ -1360,7 +1405,6 @@ def list_external_ips():
             
             conn.close()
         else:
-            # No database yet, just return IPs with unknown status
             for ip in ip_list:
                 results.append({
                     'ip': ip,
@@ -1371,14 +1415,13 @@ def list_external_ips():
         
         return {
             'status': 'ok',
-            'message': f'Found {len(results)} external IPs',
+            'message': f'Found {len(results)} external IPs in recent logs (last 500 lines)',
             'ips': results,
             'total_count': len(results)
         }
         
     except Exception as e:
-        log_message(f"Error listing external IPs: {str(e)}")
-        return {'status': 'error', 'message': f'Error listing external IPs: {str(e)}'}
+        return {'status': 'error', 'message': f'Error: {str(e)}'}
 
 def main():
     """Main entry point"""
@@ -1396,7 +1439,7 @@ def main():
         
         # Parse command line arguments
         parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
-        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'listips', 'debuglog', 'debugreal', 'daemon'],
+        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'listips', 'debuglog', 'connections', 'daemon'],
                    help='Operation mode')
         parser.add_argument('ip', nargs='?', help='IP address to test (only for testip mode)')
         
@@ -1439,9 +1482,9 @@ def main():
         elif args.mode == 'debuglog':
             log_message("Running debug log parsing")
             result = debug_log_parsing()
-        elif args.mode == 'debugreal':
-            log_message("Running real-time debug parsing")
-            result = debug_real_parsing()
+        elif args.mode == 'connections':
+            log_message("Listing all external→internal connections")
+            result = list_external_to_internal_connections()
         elif args.mode == 'daemon':
             # Don't return JSON for daemon mode, just run
             log_message("Starting daemon mode")
