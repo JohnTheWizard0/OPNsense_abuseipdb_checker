@@ -1192,8 +1192,7 @@ def test_ip(ip_address):
         for key, value in result.items():
             if value is None:
                 result[key] = ""
-                
-        log_message(f"Test completed for {ip_address}: {'Threat' if is_threat else 'Clean'} (Score: {abuse_score})")
+        log_message(f"Test completed for {ip_address}: {get_threat_level_text(threat_level)} (Score: {abuse_score})")
         return result
         
     except Exception as e:
@@ -1486,24 +1485,27 @@ def process_ip_batch(ip_batch, config):
                 
                 if report is not None:
                     abuse_score = report.get('abuseConfidenceScore', 0)
+                    threat_level = classify_threat_level(abuse_score)
                     
                     # Update or insert into checked_ips
                     c.execute('SELECT * FROM checked_ips WHERE ip = ?', (ip,))
                     existing = c.fetchone()
                     
+                    country = report.get('countryCode', 'Unknown')
+                    
                     if existing:
                         c.execute(
-                            'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, is_threat = ? WHERE ip = ?',
-                            (check_date, 1 if is_threat else 0, ip)
+                            'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, threat_level = ?, country = ? WHERE ip = ?',
+                            (check_date, threat_level, country, ip)
                         )
                     else:
                         c.execute(
-                            'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, is_threat) VALUES (?, ?, ?, ?, ?)',
-                            (ip, check_date, check_date, 1, 1 if is_threat else 0)
+                            'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, threat_level, country) VALUES (?, ?, ?, ?, ?, ?)',
+                            (ip, check_date, check_date, 1, threat_level, country)
                         )
                     
-                    # Handle threats
-                    if is_threat:
+                    # Handle threats (suspicious or malicious)
+                    if threat_level >= 1:  # Suspicious or Malicious
                         categories = ''
                         if 'reports' in report and report['reports'] and len(report['reports']) > 0:
                             if 'categories' in report['reports'][0]:
@@ -1514,17 +1516,17 @@ def process_ip_batch(ip_batch, config):
                             c.execute(
                                 'UPDATE threats SET abuse_score = ?, reports = ?, last_seen = ?, categories = ?, country = ? WHERE ip = ?',
                                 (abuse_score, report.get('totalReports', 0), check_date, 
-                                 categories, report.get('countryCode', ''), ip)
+                                categories, report.get('countryCode', ''), ip)
                             )
                         else:
                             c.execute(
                                 'INSERT INTO threats (ip, abuse_score, reports, last_seen, categories, country) VALUES (?, ?, ?, ?, ?, ?)',
                                 (ip, abuse_score, report.get('totalReports', 0), check_date, 
-                                 categories, report.get('countryCode', ''))
+                                categories, report.get('countryCode', ''))
                             )
                         
                         threats_detected += 1
-                        log_message(f"🚨 THREAT DETECTED: {ip} (Score: {abuse_score}%)")
+                        log_message(f"🚨 THREAT DETECTED: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)})")
                         
                         # Send email notification (non-blocking)
                         try:
@@ -1532,6 +1534,11 @@ def process_ip_batch(ip_batch, config):
                                 log_message(f"Email notification sent for threat: {ip}")
                         except Exception as e:
                             log_message(f"Failed to send email for {ip}: {str(e)}")
+                    else:
+                        # Remove from threats table if it's now safe
+                        c.execute('DELETE FROM threats WHERE ip = ?', (ip,))
+                        if c.rowcount > 0:
+                            log_message(f"Removed {ip} from threats table (now safe: {abuse_score}%)")
                     
                     ips_checked += 1
                     
