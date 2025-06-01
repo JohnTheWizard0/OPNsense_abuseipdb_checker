@@ -338,7 +338,7 @@
             });
         }
 
-        // Functions to update the dashboard data
+       // Functions to update the dashboard data - with error handling
         function updateStats() {
             ajaxCall("/api/abuseipdbchecker/service/stats", {}, function(data) {
                 if (data && data.status === 'ok') {
@@ -347,9 +347,12 @@
                     $("#checks-today").text(data.daily_checks || 0);
                     $("#last-run").text(data.last_check || 'Never');
                 }
+            }, function() {
+                // Handle errors silently for background updates
+                console.log('Stats update failed');
             });
         }
-        
+
         function updateThreats() {
             ajaxCall("/api/abuseipdbchecker/service/threats", {}, function(data) {
                 if (data && data.status === 'ok' && data.threats) {
@@ -370,9 +373,11 @@
                         });
                     }
                 }
+            }, function() {
+                console.log('Threats update failed');
             });
         }
-        
+
         function updateLogs() {
             ajaxCall("/api/abuseipdbchecker/service/logs", {}, function(data) {
                 if (data && data.status === 'ok' && data.logs) {
@@ -386,18 +391,25 @@
                 } else {
                     $("#log-content").text(data.message || "{{ lang._('Error retrieving logs.') }}");
                 }
+            }, function() {
+                console.log('Logs update failed');
             });
         }
 
-        // Force service status refresh every 3 seconds
+        // Optimized service status refresh - only when page is visible
         function refreshServiceStatus() {
+            // Skip if page is not visible
+            if (document.hidden) {
+                return;
+            }
+            
             $.ajax({
                 url: '/api/abuseipdbchecker/service/status',
                 type: 'POST',
                 dataType: 'json',
+                timeout: 5000,
                 success: function(data) {
                     if (data && data.status === 'running') {
-                        // Force GUI to show running state
                         $('.service-abuseipdbchecker .service-status').removeClass('text-danger').addClass('text-success').text('Running');
                         $('.service-abuseipdbchecker .btn-start').prop('disabled', true);
                         $('.service-abuseipdbchecker .btn-stop').prop('disabled', false);
@@ -406,17 +418,51 @@
                         $('.service-abuseipdbchecker .btn-start').prop('disabled', false);
                         $('.service-abuseipdbchecker .btn-stop').prop('disabled', true);
                     }
+                },
+                error: function() {
+                    // Silently handle errors to prevent console spam
+                    console.log('Service status check failed - daemon may be starting');
                 }
             });
         }
 
-        // Start polling
-        setInterval(refreshServiceStatus, 3000);
-        refreshServiceStatus(); // Initial call
+        // Reduced polling frequency and better lifecycle management
+        var statusInterval = setInterval(refreshServiceStatus, 10000); // Every 10 seconds instead of 3
+
+        // Pause polling when page is hidden
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                clearInterval(statusInterval);
+            } else {
+                statusInterval = setInterval(refreshServiceStatus, 10000);
+                refreshServiceStatus(); // Immediate check when page becomes visible
+            }
+        });
+
+        // Initial call
+        refreshServiceStatus();
         
-        // Add tab change event handlers for bottom tabs
+        // Refresh buttons
+        $("#refreshStats").click(updateStats);
+        $("#refreshExternalIPs").click(updateExternalIPs);
+        $("#refreshThreats").click(updateThreats);
+        $("#refreshLogs").click(updateLogs);
+
+        // Tab update throttling
+        var lastTabUpdate = {};
+        
+        // Add tab change event handlers - with throttling
         $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
             var target = $(e.target).attr("href");
+            var now = Date.now();
+            
+            // Throttle updates to prevent spam
+            if (lastTabUpdate[target] && (now - lastTabUpdate[target]) < 5000) {
+                return; // Skip if updated less than 5 seconds ago
+            }
+            
+            lastTabUpdate[target] = now;
+            
             if (target === "#stats") {
                 updateStats();
             } else if (target === "#externalips") {
@@ -428,11 +474,7 @@
             }
         });
         
-        // Refresh buttons
-        $("#refreshStats").click(updateStats);
-        $("#refreshExternalIPs").click(updateExternalIPs);
-        $("#refreshThreats").click(updateThreats);
-        $("#refreshLogs").click(updateLogs);
+
         
         // Initial data load
         updateStats();

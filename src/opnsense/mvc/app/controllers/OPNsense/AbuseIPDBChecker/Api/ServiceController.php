@@ -146,6 +146,17 @@ class ServiceController extends ApiMutableServiceControllerBase
         return ["status" => "failed", "message" => "Unable to retrieve external IPs"];
     }
 
+    public function batchstatusAction()
+    {
+        $backend = new Backend();
+        $response = $backend->configdRun("abuseipdbchecker batchstatus");
+        $bckresult = json_decode(trim($response), true);
+        if ($bckresult !== null) {
+            return $bckresult;
+        }
+        return ["status" => "failed", "message" => "Unable to retrieve batch status"];
+    }
+
     protected function reconfigureForceRestart()
     {
         return 0;

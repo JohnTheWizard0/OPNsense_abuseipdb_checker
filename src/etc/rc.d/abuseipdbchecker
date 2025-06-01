@@ -28,8 +28,15 @@ stop_postcmd="abuseipdbchecker_poststop"
 
 abuseipdbchecker_prestart()
 {
-    # Kill any existing processes
+    # Kill any existing processes more thoroughly
     /usr/bin/pkill -f "checker.py daemon" 2>/dev/null || true
+    /usr/bin/pkill -f "AbuseIPDBChecker/checker.py" 2>/dev/null || true
+    
+    # Wait for processes to die
+    sleep 2
+    
+    # Force kill if still running
+    /usr/bin/pkill -9 -f "checker.py daemon" 2>/dev/null || true
     
     # Remove stale PID file
     if [ -f ${pidfile} ]; then
@@ -54,17 +61,33 @@ abuseipdbchecker_prestart()
         /bin/mkdir -p /usr/local/opnsense/scripts/OPNsense
         /bin/ln -sf /usr/local/opnsense/scripts/AbuseIPDBChecker /usr/local/opnsense/scripts/OPNsense/
     fi
+    
+    # Clear old logs to prevent spam
+    if [ -f /var/log/abuseipdbchecker/abuseipdb.log ]; then
+        # Keep only last 100 lines
+        tail -100 /var/log/abuseipdbchecker/abuseipdb.log > /tmp/abuseipdb_temp.log
+        mv /tmp/abuseipdb_temp.log /var/log/abuseipdbchecker/abuseipdb.log
+    fi
+    
+    echo "AbuseIPDB Checker: Enhanced daemon starting with 15-second batch processing"
 }
 
 abuseipdbchecker_poststop()
 {
-    # Kill processes
+    # More thorough cleanup
     /usr/bin/pkill -f "checker.py daemon" 2>/dev/null || true
+    /usr/bin/pkill -f "AbuseIPDBChecker/checker.py" 2>/dev/null || true
+    
+    # Wait and force kill
+    sleep 2
+    /usr/bin/pkill -9 -f "checker.py daemon" 2>/dev/null || true
     
     # Clean PID file
     if [ -f ${pidfile} ]; then
         rm -f ${pidfile}
     fi
+    
+    echo "AbuseIPDB Checker: Daemon stopped"
 }
 
 # Custom start function that creates PID file

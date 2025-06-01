@@ -401,11 +401,10 @@ def list_external_to_internal_connections():
     }
 
 def parse_log_for_ips(config, recent_only=False):
-    """Parse OPNsense firewall log for external IPs"""
+    """Parse OPNsense firewall log for external IPs - enhanced for daemon mode"""
     external_ips = set()
     
     if not os.path.exists(config['log_file']):
-        log_message(f"Log file not found: {config['log_file']}")
         return external_ips
     
     # Convert LAN subnets to proper network objects
@@ -413,30 +412,22 @@ def parse_log_for_ips(config, recent_only=False):
     for subnet in config['lan_subnets']:
         try:
             lan_networks.append(ipaddress.ip_network(subnet.strip()))
-        except ValueError as e:
-            log_message(f"Invalid LAN subnet: {subnet} - {str(e)}")
+        except ValueError:
             continue
-    
-    log_message(f"Parsing OPNsense log file: {config['log_file']}")
     
     try:
         with open(config['log_file'], 'r', encoding='utf-8', errors='ignore') as f:
             if recent_only:
-                # For External IPs tab - only recent activity (last 1000 lines)
+                # For daemon mode - only recent activity (last 200 lines for responsive collection)
+                lines = f.readlines()
+                lines = lines[-200:] if len(lines) > 200 else lines
+            else:
+                # For full checking - process more lines
                 lines = f.readlines()
                 lines = lines[-1000:] if len(lines) > 1000 else lines
-            else:
-                # For full checking - process entire file
-                lines = f.readlines()
-        
-        line_count = 0
-        parsed_entries = 0
         
         for line in lines:
-            line_count += 1
-            line = line.strip()
-            
-            if not line or 'filterlog' not in line:
+            if not line.strip() or 'filterlog' not in line:
                 continue
             
             try:
@@ -448,51 +439,39 @@ def parse_log_for_ips(config, recent_only=False):
                 
                 fields = csv_part.split(',')
                 
-                # Ensure we have enough fields
                 if len(fields) < 20:
                     continue
                 
-                # Parse key fields
                 action = fields[6].strip() if len(fields) > 6 else ''
                 ip_version = fields[8].strip() if len(fields) > 8 else ''
                 
-                # Only process IPv4
+                # Only IPv4
                 if ip_version != '4':
                     continue
                 
-                # Skip blocked connections if configured
+                # Skip blocked if configured
                 if config['ignore_blocked_connections'] and action.lower() == 'block':
                     continue
                 
-                # Parse protocol and IPs
-                if len(fields) > 19:
+                # Parse protocol and skip ignored protocols
+                if len(fields) > 15:
                     try:
                         proto_num = int(fields[15].strip()) if fields[15].strip() else 0
-                        src_ip = fields[18].strip() if len(fields) > 18 else ''
-                        dst_ip = fields[19].strip() if len(fields) > 19 else ''
-                        
-                        # Skip ignored protocols
                         proto_name = ''
                         if proto_num == 1:
                             proto_name = 'icmp'
                         elif proto_num == 2:
                             proto_name = 'igmp'
-                        elif proto_num == 6:
-                            proto_name = 'tcp'
-                        elif proto_num == 17:
-                            proto_name = 'udp'
-                        else:
-                            proto_name = str(proto_num)
                         
-                        if proto_name.lower() in [p.lower() for p in config['ignore_protocols']]:
+                        if proto_name and proto_name.lower() in [p.lower() for p in config['ignore_protocols']]:
                             continue
-                            
                     except (ValueError, IndexError):
-                        continue
-                else:
-                    continue
+                        pass
                 
-                # Skip if no valid IPs
+                # Get source and destination IPs
+                src_ip = fields[18].strip() if len(fields) > 18 else ''
+                dst_ip = fields[19].strip() if len(fields) > 19 else ''
+                
                 if not src_ip or not dst_ip:
                     continue
 
@@ -508,27 +487,20 @@ def parse_log_for_ips(config, recent_only=False):
                     # Check if source IP is external
                     src_is_external = not src_ip_obj.is_private
                     for network in lan_networks:
-                        try:
-                            if src_ip_obj in network:
-                                src_is_external = False
-                                break
-                        except ValueError:
-                            continue
+                        if src_ip_obj in network:
+                            src_is_external = False
+                            break
                     
                     # Check if destination IP is internal
                     dst_is_internal = dst_ip_obj.is_private
                     for network in lan_networks:
-                        try:
-                            if dst_ip_obj in network:
-                                dst_is_internal = True
-                                break
-                        except ValueError:
-                            continue
+                        if dst_ip_obj in network:
+                            dst_is_internal = True
+                            break
                     
                     # Only process: External Source → Internal Destination
                     if src_is_external and dst_is_internal:
                         external_ips.add(src_ip)
-                        parsed_entries += 1
                         
                 except ValueError:
                     continue
@@ -536,10 +508,10 @@ def parse_log_for_ips(config, recent_only=False):
             except Exception:
                 continue
         
-        log_message(f"Processed {line_count} lines, found {len(external_ips)} unique external IPs")
-        
     except Exception as e:
-        log_message(f"Error reading log file: {str(e)}")
+        # Don't log every read error in daemon mode to avoid spam
+        if not recent_only:
+            log_message(f"Error reading log file: {str(e)}")
     
     return external_ips
 
@@ -1210,87 +1182,6 @@ def test_ip(ip_address):
         if conn:
             conn.close()
 
-def run_daemon():
-    """Run the checker in daemon mode with 5-second polling"""
-    log_message("AbuseIPDB Checker daemon starting up - PID: " + str(os.getpid()))
-    
-    # Set up signal handlers for graceful shutdown
-    import signal
-    
-    def signal_handler(signum, frame):
-        log_message(f"Received signal {signum}, stopping daemon gracefully")
-        sys.exit(0)
-    
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-    
-    poll_count = 0
-    
-    while True:
-        try:
-            poll_count += 1
-            log_message(f"=== Daemon Poll #{poll_count} - PID {os.getpid()} ===")
-            log_message("Polling for external IPs from firewall logs...")
-            
-            # Read configuration
-            config = read_config()
-            log_message(f"Configuration loaded - Enabled: {config['enabled']}")
-            
-            if not config['enabled']:
-                log_message("Service is disabled in configuration, continuing to poll...")
-                time.sleep(5)
-                continue
-            
-            # Get external IPs from log (for debugging, we'll always show this)
-            try:
-                external_ips = parse_log_for_ips(config)
-                
-                if external_ips:
-                    log_message(f"Found {len(external_ips)} external IPs from firewall logs")
-                    # Show first few IPs for debugging
-                    sample_ips = list(external_ips)[:3]
-                    for ip in sample_ips:
-                        log_message(f"  - External IP detected: {ip}")
-                    if len(external_ips) > 3:
-                        log_message(f"  - ... and {len(external_ips) - 3} more IPs")
-                        
-                    # For debugging, we'll show what we would do
-                    log_message("Would check these IPs against AbuseIPDB (API calls disabled in daemon mode)")
-                else:
-                    log_message("No external IPs found in current firewall logs")
-                    
-            except Exception as e:
-                log_message(f"Error parsing firewall logs: {str(e)}")
-            
-            # Check database stats
-            try:
-                if os.path.exists(DB_FILE):
-                    conn = sqlite3.connect(DB_FILE)
-                    c = conn.cursor()
-                    c.execute('SELECT COUNT(*) FROM checked_ips')
-                    total_ips = c.fetchone()[0]
-                    c.execute('SELECT COUNT(*) FROM threats')
-                    total_threats = c.fetchone()[0]
-                    conn.close()
-                    log_message(f"Database stats: {total_ips} IPs checked, {total_threats} threats detected")
-                else:
-                    log_message("Database not yet initialized")
-            except Exception as e:
-                log_message(f"Error reading database stats: {str(e)}")
-            
-            log_message("Poll completed successfully, sleeping for 5 seconds...")
-            time.sleep(5)
-            
-        except KeyboardInterrupt:
-            log_message("Received keyboard interrupt, stopping daemon")
-            break
-        except Exception as e:
-            log_message(f"Error in daemon loop: {str(e)}")
-            log_message("Continuing daemon operation...")
-            time.sleep(5)
-    
-    log_message("AbuseIPDB Checker daemon shutting down")
-
 def list_external_ips():
     """List external IPs from RECENT firewall logs only (last 500 lines)"""
     try:
@@ -1423,6 +1314,303 @@ def list_external_ips():
     except Exception as e:
         return {'status': 'error', 'message': f'Error: {str(e)}'}
 
+def run_daemon():
+    """Run the checker in daemon mode with 15-second batch processing"""
+    log_message("AbuseIPDB Checker daemon starting up with batch processing - PID: " + str(os.getpid()))
+    
+    # Set up signal handlers for graceful shutdown
+    import signal
+    
+    def signal_handler(signum, frame):
+        log_message(f"Received signal {signum}, stopping daemon gracefully")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    # Batch collection variables
+    ip_collection = set()
+    last_batch_time = time.time()
+    batch_interval = 15  # seconds
+    poll_interval = 2.5  # seconds (faster polling for more responsive collection)
+    poll_count = 0
+    
+    log_message(f"Daemon configured: batch_interval={batch_interval}s, poll_interval={poll_interval}s")
+    
+    while True:
+        try:
+            poll_count += 1
+            current_time = time.time()
+            
+            # Read configuration
+            config = read_config()
+            
+            if not config['enabled']:
+                log_message("Service disabled, sleeping...")
+                time.sleep(poll_interval)
+                continue
+            
+            # Collect external IPs from current logs
+            try:
+                # Use recent_only=True to get only recent IPs (last 200 lines)
+                external_ips = parse_log_for_ips(config, recent_only=True)
+                
+                if external_ips:
+                    new_ips = external_ips - ip_collection
+                    if new_ips:
+                        log_message(f"Poll #{poll_count}: Found {len(new_ips)} new external IPs")
+                        for ip in list(new_ips)[:3]:  # Log first 3 for debugging
+                            log_message(f"  + Collected: {ip}")
+                        if len(new_ips) > 3:
+                            log_message(f"  + ... and {len(new_ips) - 3} more")
+                    
+                    # Add to collection
+                    ip_collection.update(external_ips)
+                    
+            except Exception as e:
+                log_message(f"Error collecting IPs: {str(e)}")
+            
+            # Check if it's time to process the batch
+            if current_time - last_batch_time >= batch_interval:
+                if ip_collection:
+                    log_message(f"=== BATCH PROCESSING: {len(ip_collection)} unique IPs collected ===")
+                    
+                    try:
+                        # Process the batch
+                        result = process_ip_batch(ip_collection, config)
+                        
+                        if result['status'] == 'ok':
+                            log_message(f"Batch completed: {result['ips_checked']} checked, {result['threats_detected']} threats, {result['skipped']} skipped")
+                            if result['threats_detected'] > 0:
+                                log_message(f"⚠️  THREATS DETECTED: {result['threats_detected']} malicious IPs found!")
+                        else:
+                            log_message(f"Batch failed: {result['message']}")
+                            
+                    except Exception as e:
+                        log_message(f"Error processing batch: {str(e)}")
+                    
+                    # Clear collection and reset timer
+                    ip_collection.clear()
+                else:
+                    log_message("=== BATCH PROCESSING: No IPs to process ===")
+                
+                last_batch_time = current_time
+                
+            # Sleep until next poll
+            time.sleep(poll_interval)
+            
+        except KeyboardInterrupt:
+            log_message("Received keyboard interrupt, stopping daemon")
+            break
+        except Exception as e:
+            log_message(f"Error in daemon loop: {str(e)}")
+            log_message("Continuing daemon operation...")
+            time.sleep(poll_interval)
+    
+    log_message("AbuseIPDB Checker daemon shutting down")
+
+def process_ip_batch(ip_batch, config):
+    """Process a batch of IPs collected over the interval"""
+    if not ip_batch:
+        return {'status': 'ok', 'message': 'No IPs to process', 'ips_checked': 0, 'threats_detected': 0, 'skipped': 0}
+    
+    if not os.path.exists(DB_FILE):
+        log_message("Database not initialized, skipping batch")
+        return {'status': 'error', 'message': 'Database not initialized'}
+    
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    
+    try:
+        # Reset daily checks if it's a new day
+        reset_daily_checks_if_needed(conn)
+        
+        # Get current daily check status
+        daily_checks = int(get_db_stats(conn, 'daily_checks') or '0')
+        daily_limit = config['daily_check_limit']
+        
+        if daily_checks >= daily_limit:
+            return {
+                'status': 'limited', 
+                'message': f'Daily API limit reached ({daily_checks}/{daily_limit})',
+                'ips_checked': 0, 'threats_detected': 0, 'skipped': len(ip_batch)
+            }
+        
+        c = conn.cursor()
+        now = datetime.now()
+        check_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        
+        ips_to_check = []
+        skipped_count = 0
+        
+        # Filter IPs that need checking
+        for ip in ip_batch:
+            # Check if we've hit the daily limit
+            if daily_checks >= daily_limit:
+                skipped_count += len(ip_batch) - len(ips_to_check)
+                break
+                
+            # Check if IP was recently checked
+            c.execute('SELECT last_checked FROM checked_ips WHERE ip = ?', (ip,))
+            existing = c.fetchone()
+            
+            if existing:
+                last_checked = datetime.strptime(existing['last_checked'], '%Y-%m-%d %H:%M:%S')
+                if last_checked > (now - timedelta(days=config['check_frequency'])):
+                    skipped_count += 1
+                    continue
+            
+            ips_to_check.append(ip)
+            daily_checks += 1  # Reserve this check
+        
+        log_message(f"Batch filter: {len(ips_to_check)} to check, {skipped_count} skipped (recent or limit)")
+        
+        # Process each IP that needs checking
+        threats_detected = 0
+        ips_checked = 0
+        
+        for ip in ips_to_check:
+            try:
+                log_message(f"Checking IP: {ip}")
+                
+                # Check against AbuseIPDB
+                report = check_ip_abuseipdb(ip, config)
+                
+                if report is not None:
+                    abuse_score = report.get('abuseConfidenceScore', 0)
+                    is_threat = abuse_score >= config['abuse_score_threshold']
+                    
+                    log_message(f"IP {ip}: Score={abuse_score}%, Threat={'YES' if is_threat else 'NO'}")
+                    
+                    # Update or insert into checked_ips
+                    c.execute('SELECT * FROM checked_ips WHERE ip = ?', (ip,))
+                    existing = c.fetchone()
+                    
+                    if existing:
+                        c.execute(
+                            'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, is_threat = ? WHERE ip = ?',
+                            (check_date, 1 if is_threat else 0, ip)
+                        )
+                    else:
+                        c.execute(
+                            'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, is_threat) VALUES (?, ?, ?, ?, ?)',
+                            (ip, check_date, check_date, 1, 1 if is_threat else 0)
+                        )
+                    
+                    # Handle threats
+                    if is_threat:
+                        categories = ''
+                        if 'reports' in report and report['reports'] and len(report['reports']) > 0:
+                            if 'categories' in report['reports'][0]:
+                                categories = ','.join(str(cat) for cat in report['reports'][0]['categories'])
+                        
+                        c.execute('SELECT * FROM threats WHERE ip = ?', (ip,))
+                        if c.fetchone():
+                            c.execute(
+                                'UPDATE threats SET abuse_score = ?, reports = ?, last_seen = ?, categories = ?, country = ? WHERE ip = ?',
+                                (abuse_score, report.get('totalReports', 0), check_date, 
+                                 categories, report.get('countryCode', ''), ip)
+                            )
+                        else:
+                            c.execute(
+                                'INSERT INTO threats (ip, abuse_score, reports, last_seen, categories, country) VALUES (?, ?, ?, ?, ?, ?)',
+                                (ip, abuse_score, report.get('totalReports', 0), check_date, 
+                                 categories, report.get('countryCode', ''))
+                            )
+                        
+                        threats_detected += 1
+                        log_message(f"🚨 THREAT DETECTED: {ip} (Score: {abuse_score}%)")
+                        
+                        # Send email notification (non-blocking)
+                        try:
+                            if send_email_notification(ip, report, config):
+                                log_message(f"Email notification sent for threat: {ip}")
+                        except Exception as e:
+                            log_message(f"Failed to send email for {ip}: {str(e)}")
+                    
+                    ips_checked += 1
+                    
+                    # Brief pause to avoid overwhelming the API
+                    time.sleep(0.3)
+                    
+                else:
+                    log_message(f"No report received for IP: {ip}")
+                    
+            except Exception as e:
+                log_message(f"Error checking IP {ip}: {str(e)}")
+                continue
+        
+        # Update stats
+        update_db_stats(conn, 'last_check', check_date)
+        current_daily = int(get_db_stats(conn, 'daily_checks') or '0')
+        update_db_stats(conn, 'daily_checks', str(current_daily + ips_checked))
+        
+        total_checks = int(get_db_stats(conn, 'total_checks') or '0') + ips_checked
+        update_db_stats(conn, 'total_checks', str(total_checks))
+        
+        conn.commit()
+        
+        return {
+            'status': 'ok',
+            'message': f'Batch processed: {ips_checked} checked, {threats_detected} threats',
+            'ips_checked': ips_checked,
+            'threats_detected': threats_detected,
+            'skipped': skipped_count
+        }
+        
+    except Exception as e:
+        log_message(f"Error in process_ip_batch: {str(e)}")
+        return {'status': 'error', 'message': f'Batch processing error: {str(e)}'}
+    
+    finally:
+        conn.close()
+
+def get_batch_status():
+    """Get current batch processing status and recent activity"""
+    try:
+        # Check if daemon is running
+        import subprocess
+        result = subprocess.run(['pgrep', '-f', 'checker.py daemon'], 
+                              capture_output=True, text=True)
+        daemon_running = bool(result.stdout.strip())
+        
+        # Get recent log entries for batch activity
+        recent_batches = []
+        if os.path.exists(LOG_FILE):
+            with open(LOG_FILE, 'r') as f:
+                lines = f.readlines()[-50:]  # Last 50 lines
+                
+            for line in reversed(lines):
+                if 'BATCH PROCESSING:' in line or 'Batch completed:' in line:
+                    recent_batches.append(line.strip())
+                    if len(recent_batches) >= 5:  # Last 5 batch operations
+                        break
+        
+        # Get configuration
+        config = read_config()
+        
+        # Get database stats for current session
+        current_stats = get_statistics()
+        
+        return {
+            'status': 'ok',
+            'daemon_running': daemon_running,
+            'daemon_pid': result.stdout.strip() if daemon_running else None,
+            'batch_interval': '15 seconds',
+            'poll_interval': '2.5 seconds',
+            'recent_batches': recent_batches,
+            'service_enabled': config['enabled'],
+            'daily_checks_used': current_stats.get('daily_checks', '0'),
+            'daily_limit': config['daily_check_limit'],
+            'api_configured': bool(config['api_key'] and config['api_key'] != 'YOUR_API_KEY')
+        }
+        
+    except Exception as e:
+        return {
+            'status': 'error',
+            'message': f'Error getting batch status: {str(e)}'
+        }
+
 def main():
     """Main entry point"""
     # First thing: log startup and ensure directories
@@ -1439,7 +1627,7 @@ def main():
         
         # Parse command line arguments
         parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
-        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'listips', 'debuglog', 'connections', 'daemon'],
+        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'listips', 'debuglog', 'connections', 'daemon', 'batchstatus'],
                    help='Operation mode')
         parser.add_argument('ip', nargs='?', help='IP address to test (only for testip mode)')
         
@@ -1485,6 +1673,9 @@ def main():
         elif args.mode == 'connections':
             log_message("Listing all external→internal connections")
             result = list_external_to_internal_connections()
+        elif args.mode == 'batchstatus':
+            log_message("Getting batch processing status")
+            result = get_batch_status()
         elif args.mode == 'daemon':
             # Don't return JSON for daemon mode, just run
             log_message("Starting daemon mode")
