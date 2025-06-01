@@ -92,7 +92,7 @@
 
         });
         
-        // Test IP button handler
+        // Test IP button handler  
         $("#testIpBtn").click(function() {
             var ip = $("#ipToTest").val().trim();
             if (!ip) {
@@ -123,14 +123,14 @@
             $("#testResults").removeClass("hidden");
             $("#testResultTable").addClass("hidden");
             
-            // Call API
-            // Replace the ajaxCall section with:
+            // Enhanced AJAX call with better error handling
             $.ajax({
                 url: "/api/abuseipdbchecker/service/testip",
                 type: "POST",
                 data: JSON.stringify({"ip": ip}),
                 contentType: "application/json",
                 dataType: "json",
+                timeout: 30000, // 30 second timeout
                 success: function(data, status) {
                     $("#testIpBtn").prop("disabled", false);
                     
@@ -170,9 +170,34 @@
                 },
                 error: function(xhr, status, error) {
                     $("#testIpBtn").prop("disabled", false);
+                    
+                    // Enhanced error messaging
+                    var errorMsg = "{{ lang._('Error communicating with server') }}";
+                    if (xhr.status) {
+                        errorMsg += " (HTTP " + xhr.status + ")";
+                    }
+                    if (xhr.responseText) {
+                        try {
+                            var errorData = JSON.parse(xhr.responseText);
+                            if (errorData.message) {
+                                errorMsg = errorData.message;
+                            }
+                        } catch(e) {
+                            // If response isn't JSON, show first 100 chars
+                            errorMsg += ": " + xhr.responseText.substring(0, 100);
+                        }
+                    }
+                    
+                    console.error("AJAX Error:", {
+                        status: xhr.status,
+                        statusText: xhr.statusText,
+                        responseText: xhr.responseText,
+                        error: error
+                    });
+                    
                     $("#testResultAlert").removeClass("alert-info alert-success alert-warning")
                         .addClass("alert-danger")
-                        .text("{{ lang._('Error communicating with server') }}");
+                        .text(errorMsg);
                     $("#testResultTable").addClass("hidden");
                 }
             });

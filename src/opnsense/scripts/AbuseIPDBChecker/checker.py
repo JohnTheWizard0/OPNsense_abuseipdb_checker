@@ -961,7 +961,9 @@ def main():
             print(json.dumps({'status': 'error', 'message': 'No operation mode specified'}))
             return
             
-        args = parser.parse_args()
+        # Handle configd passing extra %s parameter
+        filtered_args = [arg for arg in sys.argv[1:] if arg != '%s']
+        args = parser.parse_args(filtered_args)
         log_message(f"Running in {args.mode} mode")
         
         # Different actions based on mode
