@@ -799,15 +799,17 @@ def run_checker(config):
                 threat_level = classify_threat_level(abuse_score)
                 
                 # Update or insert into checked_ips
+                country = report.get('countryCode', 'Unknown')
+                
                 if existing:
                     c.execute(
-                        'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, threat_level = ? WHERE ip = ?',
-                        (check_date, threat_level, ip)
+                        'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, threat_level = ?, country = ? WHERE ip = ?',
+                        (check_date, threat_level, country, ip)
                     )
                 else:
                     c.execute(
-                        'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, threat_level) VALUES (?, ?, ?, ?, ?)',
-                        (ip, check_date, check_date, 1, threat_level)
+                        'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, threat_level, country) VALUES (?, ?, ?, ?, ?, ?)',
+                        (ip, check_date, check_date, 1, threat_level, country)
                     )
                 
                 # If it's a threat, update or insert into threats table
@@ -1109,16 +1111,17 @@ def test_ip(ip_address):
         c.execute('SELECT * FROM checked_ips WHERE ip = ?', (ip_address,))
         existing = c.fetchone()
         
+        country = report.get('countryCode', 'Unknown')
+        
         if existing:
             c.execute(
-                'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, threat_level = ? WHERE ip = ?',
-                (check_date, threat_level, ip_address)
+                'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, threat_level = ?, country = ? WHERE ip = ?',
+                (check_date, threat_level, country, ip_address)
             )
-            log_message(f"Updated checked_ips for {ip_address}: last_checked={check_date}")
         else:
             c.execute(
-                'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, threat_level) VALUES (?, ?, ?, ?, ?)',
-                (ip_address, check_date, check_date, 1, threat_level)
+                'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, threat_level, country) VALUES (?, ?, ?, ?, ?, ?)',
+                (ip_address, check_date, check_date, 1, threat_level, country)
             )
             log_message(f"Inserted into checked_ips for {ip_address}: last_checked={check_date}")
         
@@ -1378,9 +1381,9 @@ def get_all_checked_ips():
             ci.last_checked,
             ci.threat_level,
             ci.check_count,
+            ci.country,
             t.abuse_score,
             t.reports,
-            t.country,
             t.categories
         FROM checked_ips ci
         LEFT JOIN threats t ON ci.ip = t.ip
@@ -1398,7 +1401,7 @@ def get_all_checked_ips():
                 'check_count': row['check_count'],
                 'abuse_score': row['abuse_score'] or 0,
                 'reports': row['reports'] or 0,
-                'country': row['country'] or 'Unknown',
+                'country': row['country'] or 'Unknown',  # Now from checked_ips
                 'categories': row['categories'] or ''
             })
         
@@ -1483,9 +1486,6 @@ def process_ip_batch(ip_batch, config):
                 
                 if report is not None:
                     abuse_score = report.get('abuseConfidenceScore', 0)
-                    is_threat = abuse_score >= config['abuse_score_threshold']
-                    
-                    log_message(f"IP {ip}: Score={abuse_score}%, Threat={'YES' if is_threat else 'NO'}")
                     
                     # Update or insert into checked_ips
                     c.execute('SELECT * FROM checked_ips WHERE ip = ?', (ip,))

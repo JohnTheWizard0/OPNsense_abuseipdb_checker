@@ -63,13 +63,16 @@ def setup_database():
             first_seen TEXT,
             last_checked TEXT,
             check_count INTEGER,
-            threat_level INTEGER DEFAULT 0
+            threat_level INTEGER DEFAULT 0,
+            country TEXT DEFAULT 'Unknown'
         )
         ''')
 
-        # Migration: Add threat_level column if it doesn't exist
+        # Migration: Add country column if missing
         c.execute('PRAGMA table_info(checked_ips)')
         columns = [column[1] for column in c.fetchall()]
+        if 'country' not in columns:
+            c.execute('ALTER TABLE checked_ips ADD COLUMN country TEXT DEFAULT "Unknown"')
         
         if 'threat_level' not in columns:
             if 'is_threat' in columns:
