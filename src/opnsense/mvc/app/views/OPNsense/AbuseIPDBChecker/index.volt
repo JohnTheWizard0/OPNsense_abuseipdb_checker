@@ -205,7 +205,9 @@
                         $("#result-domain").text(data.domain);
                         $("#result-reports").text(data.reports);
                         $("#result-last-reported").text(data.last_reported);
-                        
+                        $("#result-abusedb-link").html('<a href="https://www.abuseipdb.com/check/' + data.ip + 
+                        '" target="_blank" class="btn btn-xs btn-primary"><i class="fa fa-external-link"></i> {{ lang._("View Full Report") }}</a>');
+                                                
                         $("#testResultTable").removeClass("hidden");
                         
                         // Refresh stats after test
@@ -460,6 +462,7 @@
                                 <tr><th>{{ lang._('Domain') }}</th><td id="result-domain"></td></tr>
                                 <tr><th>{{ lang._('Reports') }}</th><td id="result-reports"></td></tr>
                                 <tr><th>{{ lang._('Last Reported') }}</th><td id="result-last-reported"></td></tr>
+                                <tr><th>{{ lang._('AbuseIPDB Report') }}</th><td id="result-abusedb-link"></td></tr>
                             </tbody>
                         </table>
                     </div>
