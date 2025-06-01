@@ -57,9 +57,7 @@
                 return;
             }
             
-            // Now send the combined data
             // Send the data to the server
-            // Send a single API call with the complete data
             ajaxCall(
                 "/api/abuseipdbchecker/settings/set",
                 data,
@@ -279,7 +277,7 @@
         setInterval(refreshServiceStatus, 3000);
         refreshServiceStatus(); // Initial call
         
-        // Add tab change event handlers
+        // Add tab change event handlers for bottom tabs
         $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
             var target = $(e.target).attr("href");
             if (target === "#stats") {
@@ -303,196 +301,190 @@
     });
 </script>
 
+<!-- Main Settings Tabs -->
 <ul class="nav nav-tabs" role="tablist" id="maintabs">
-    <li class="active"><a data-toggle="tab" href="#settings">{{ lang._('Settings') }}</a></li>
-    <li><a data-toggle="tab" href="#stats">{{ lang._('Statistics') }}</a></li>
-    <li><a data-toggle="tab" href="#threats">{{ lang._('Recent Threats') }}</a></li>
-    <li><a data-toggle="tab" href="#logs">{{ lang._('Logs') }}</a></li>
-    <li><a data-toggle="tab" href="#test">{{ lang._('Test IP') }}</a></li>
+    <li class="active"><a data-toggle="tab" href="#general">{{ lang._('General') }}</a></li>
+    <li><a data-toggle="tab" href="#network">{{ lang._('Network') }}</a></li>
+    <li><a data-toggle="tab" href="#api">{{ lang._('API') }}</a></li>
+    <li><a data-toggle="tab" href="#email">{{ lang._('Email') }}</a></li>
+    <li><a data-toggle="tab" href="#testip">{{ lang._('Test IP') }}</a></li>
 </ul>
 
 <div class="tab-content content-box">
-    <!-- Settings Tab -->
-    <div id="settings" class="tab-pane fade in active">
-        <div class="content-box" style="padding-bottom: 1.5em;">
-            <ul class="nav nav-tabs" role="tablist">
-                <li class="active"><a data-toggle="tab" href="#general">{{ lang._('General') }}</a></li>
-                <li><a data-toggle="tab" href="#network">{{ lang._('Network') }}</a></li>
-                <li><a data-toggle="tab" href="#api">{{ lang._('API') }}</a></li>
-                <li><a data-toggle="tab" href="#email">{{ lang._('Email') }}</a></li>
-            </ul>
-            
-            <div class="tab-content">
-                <!-- General Settings -->
-                <div id="general" class="tab-pane fade in active">
-                    <div class="content-box">
-                        {{ partial("layout_partials/base_form",['fields':generalForm,'id':'frm_general','parent':'abuseipdbchecker']) }}
-                    </div>
-                </div>
-                
-                <!-- Network Settings -->
-                <div id="network" class="tab-pane fade">
-                    <div class="content-box">
-                        {{ partial("layout_partials/base_form",['fields':networkForm,'id':'frm_network','parent':'abuseipdbchecker']) }}
-                    </div>
-                </div>
-                
-                <!-- API Settings -->
-                <div id="api" class="tab-pane fade">
-                    <div class="content-box">
-                        {{ partial("layout_partials/base_form",['fields':apiForm,'id':'frm_api','parent':'abuseipdbchecker']) }}
-                    </div>
-                </div>
-                
-                <!-- Email Settings -->
-                <div id="email" class="tab-pane fade">
-                    <div class="content-box">
-                        {{ partial("layout_partials/base_form",['fields':emailForm,'id':'frm_email','parent':'abuseipdbchecker']) }}
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-md-12">
-                <button class="btn btn-primary" id="saveAct" type="button">
-                    <b>{{ lang._('Save') }}</b> <i id="saveAct_progress" class=""></i>
-                </button>
-            </div>
+    <!-- General Settings -->
+    <div id="general" class="tab-pane fade in active">
+        <div class="content-box">
+            {{ partial("layout_partials/base_form",['fields':generalForm,'id':'frm_general','parent':'abuseipdbchecker']) }}
         </div>
     </div>
     
-    <!-- Statistics Tab -->
-    <div id="stats" class="tab-pane fade">
-        <div class="container-fluid">
-            <div class="row">
-                <div class="col-md-12">
-                    <button id="refreshStats" class="btn btn-xs btn-primary pull-right">
-                        <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
-                    </button>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-md-12">
-                    <table class="table table-striped table-condensed">
-                        <thead>
-                            <tr>
-                                <th colspan="2">{{ lang._('Usage Statistics') }}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>{{ lang._('Total IPs Checked') }}</td>
-                                <td id="total-ips-checked">0</td>
-                            </tr>
-                            <tr>
-                                <td>{{ lang._('Total Threats Detected') }}</td>
-                                <td id="total-threats">0</td>
-                            </tr>
-                            <tr>
-                                <td>{{ lang._('Checks Today') }}</td>
-                                <td id="checks-today">0</td>
-                            </tr>
-                            <tr>
-                                <td>{{ lang._('Last Run') }}</td>
-                                <td id="last-run">Never</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+    <!-- Network Settings -->
+    <div id="network" class="tab-pane fade">
+        <div class="content-box">
+            {{ partial("layout_partials/base_form",['fields':networkForm,'id':'frm_network','parent':'abuseipdbchecker']) }}
         </div>
     </div>
     
-    <!-- Recent Threats Tab -->
-    <div id="threats" class="tab-pane fade">
-        <div class="container-fluid">
-            <div class="row">
-                <div class="col-md-12">
-                    <button id="refreshThreats" class="btn btn-xs btn-primary pull-right">
-                        <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
-                    </button>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-md-12">
-                    <table class="table table-striped table-condensed">
-                        <thead>
-                            <tr>
-                                <th>{{ lang._('IP Address') }}</th>
-                                <th>{{ lang._('Score') }}</th>
-                                <th>{{ lang._('Last Checked') }}</th>
-                                <th>{{ lang._('Country') }}</th>
-                                <th>{{ lang._('Details') }}</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recent-threats-table">
-                            <!-- Dynamically populated -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+    <!-- API Settings -->
+    <div id="api" class="tab-pane fade">
+        <div class="content-box">
+            {{ partial("layout_partials/base_form",['fields':apiForm,'id':'frm_api','parent':'abuseipdbchecker']) }}
         </div>
     </div>
     
-    <!-- Logs Tab -->
-    <div id="logs" class="tab-pane fade">
-        <div class="container-fluid">
-            <div class="row">
-                <div class="col-md-12">
-                    <button id="refreshLogs" class="btn btn-xs btn-primary pull-right">
-                        <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
-                    </button>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-md-12">
-                    <div class="log-container" style="height: 400px; overflow-y: scroll; margin-top: 10px; background-color: #f5f5f5; padding: 10px; font-family: monospace; font-size: 12px;">
-                        <pre id="log-content" style="white-space: pre-wrap;"></pre>
-                    </div>
-                </div>
-            </div>
+    <!-- Email Settings -->
+    <div id="email" class="tab-pane fade">
+        <div class="content-box">
+            {{ partial("layout_partials/base_form",['fields':emailForm,'id':'frm_email','parent':'abuseipdbchecker']) }}
         </div>
     </div>
     
     <!-- Test IP Tab -->
-    <div id="test" class="tab-pane fade">
+    <div id="testip" class="tab-pane fade">
         <div class="container-fluid">
-            <div class="row">
-                <div class="col-md-12">
-                    <div class="panel panel-default">
-                        <div class="panel-heading">
-                            <h3 class="panel-title">{{ lang._('Test IP Address') }}</h3>
-                        </div>
-                        <div class="panel-body">
-                            <form id="testIpForm">
-                                <div class="form-group">
-                                    <label for="ipToTest">{{ lang._('IP Address') }}</label>
-                                    <div class="input-group">
-                                        <input type="text" class="form-control" id="ipToTest" placeholder="Enter IP address to test" value="118.76.192.54">
-                                        <span class="input-group-btn">
-                                            <button class="btn btn-primary" type="button" id="testIpBtn">
-                                                {{ lang._('Test') }}
-                                            </button>
-                                        </span>
-                                    </div>
-                                </div>
-                            </form>
-                            
-                            <div id="testResults" class="hidden">
-                                <div class="alert" id="testResultAlert" role="alert"></div>
-                                
-                                <table class="table table-striped table-condensed" id="testResultTable">
-                                    <tbody>
-                                        <tr><th>{{ lang._('IP Address') }}</th><td id="result-ip"></td></tr>
-                                        <tr><th>{{ lang._('Threat Status') }}</th><td id="result-threat"></td></tr>
-                                        <tr><th>{{ lang._('Abuse Score') }}</th><td id="result-score"></td></tr>
-                                        <tr><th>{{ lang._('Country') }}</th><td id="result-country"></td></tr>
-                                        <tr><th>{{ lang._('ISP') }}</th><td id="result-isp"></td></tr>
-                                        <tr><th>{{ lang._('Domain') }}</th><td id="result-domain"></td></tr>
-                                        <tr><th>{{ lang._('Reports') }}</th><td id="result-reports"></td></tr>
-                                        <tr><th>{{ lang._('Last Reported') }}</th><td id="result-last-reported"></td></tr>
-                                    </tbody>
-                                </table>
+            <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h3 class="panel-title">{{ lang._('Test IP Address') }}</h3>
+                </div>
+                <div class="panel-body">
+                    <form id="testIpForm">
+                        <div class="form-group">
+                            <label for="ipToTest">{{ lang._('IP Address') }}</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="ipToTest" placeholder="Enter IP address to test" value="118.76.192.54">
+                                <span class="input-group-btn">
+                                    <button class="btn btn-primary" type="button" id="testIpBtn">
+                                        {{ lang._('Test') }}
+                                    </button>
+                                </span>
                             </div>
+                        </div>
+                    </form>
+                    
+                    <div id="testResults" class="hidden">
+                        <div class="alert" id="testResultAlert" role="alert"></div>
+                        
+                        <table class="table table-striped table-condensed" id="testResultTable">
+                            <tbody>
+                                <tr><th>{{ lang._('IP Address') }}</th><td id="result-ip"></td></tr>
+                                <tr><th>{{ lang._('Threat Status') }}</th><td id="result-threat"></td></tr>
+                                <tr><th>{{ lang._('Abuse Score') }}</th><td id="result-score"></td></tr>
+                                <tr><th>{{ lang._('Country') }}</th><td id="result-country"></td></tr>
+                                <tr><th>{{ lang._('ISP') }}</th><td id="result-isp"></td></tr>
+                                <tr><th>{{ lang._('Domain') }}</th><td id="result-domain"></td></tr>
+                                <tr><th>{{ lang._('Reports') }}</th><td id="result-reports"></td></tr>
+                                <tr><th>{{ lang._('Last Reported') }}</th><td id="result-last-reported"></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Save Button -->
+    <div class="col-md-12">
+        <button class="btn btn-primary" id="saveAct" type="button">
+            <b>{{ lang._('Save') }}</b> <i id="saveAct_progress" class=""></i>
+        </button>
+    </div>
+</div>
+
+<!-- Statistics & Monitoring Section -->
+<div class="content-box" style="margin-top: 20px;">
+    <ul class="nav nav-tabs" data-tabs="tabs" id="abuseipdb-tabs">
+        <li class="active"><a data-toggle="tab" href="#stats">{{ lang._('Statistics') }}</a></li>
+        <li><a data-toggle="tab" href="#threats">{{ lang._('Recent Threats') }}</a></li>
+        <li><a data-toggle="tab" href="#logs">{{ lang._('Logs') }}</a></li>
+    </ul>
+    <div class="tab-content content-box-main">
+        <!-- Statistics Tab -->
+        <div id="stats" class="tab-pane fade in active">
+            <div class="container-fluid">
+                <div class="row">
+                    <div class="col-md-12">
+                        <button id="refreshStats" class="btn btn-xs btn-primary pull-right">
+                            <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                        </button>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <table class="table table-striped table-condensed">
+                            <thead>
+                                <tr>
+                                    <th colspan="2">{{ lang._('Usage Statistics') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>{{ lang._('Total IPs Checked') }}</td>
+                                    <td id="total-ips-checked">0</td>
+                                </tr>
+                                <tr>
+                                    <td>{{ lang._('Total Threats Detected') }}</td>
+                                    <td id="total-threats">0</td>
+                                </tr>
+                                <tr>
+                                    <td>{{ lang._('Checks Today') }}</td>
+                                    <td id="checks-today">0</td>
+                                </tr>
+                                <tr>
+                                    <td>{{ lang._('Last Run') }}</td>
+                                    <td id="last-run">Never</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent Threats Tab -->
+        <div id="threats" class="tab-pane fade">
+            <div class="container-fluid">
+                <div class="row">
+                    <div class="col-md-12">
+                        <button id="refreshThreats" class="btn btn-xs btn-primary pull-right">
+                            <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                        </button>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <table class="table table-striped table-condensed">
+                            <thead>
+                                <tr>
+                                    <th>{{ lang._('IP Address') }}</th>
+                                    <th>{{ lang._('Score') }}</th>
+                                    <th>{{ lang._('Last Checked') }}</th>
+                                    <th>{{ lang._('Country') }}</th>
+                                    <th>{{ lang._('Details') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-threats-table">
+                                <!-- Dynamically populated -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Logs Tab -->
+        <div id="logs" class="tab-pane fade">
+            <div class="container-fluid">
+                <div class="row">
+                    <div class="col-md-12">
+                        <button id="refreshLogs" class="btn btn-xs btn-primary pull-right">
+                            <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                        </button>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="log-container" style="height: 400px; overflow-y: scroll; margin-top: 10px; background-color: #f5f5f5; padding: 10px; font-family: monospace; font-size: 12px;">
+                            <pre id="log-content" style="white-space: pre-wrap;"></pre>
                         </div>
                     </div>
                 </div>

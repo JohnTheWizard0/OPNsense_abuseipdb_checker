@@ -694,15 +694,57 @@ def get_logs():
         # Read log file contents
         try:
             with open(log_file, 'r') as f:
-                # Just read the entire file if it exists - simpler approach to avoid issues
                 content = f.read()
                 if not content.strip():
-                    return {'status': 'ok', 'logs': ['No log entries yet. Run a check or test an IP.']}
+                    return {'status': 'ok', 'logs': ['No important log entries found.']}
                     
-                # Split by lines and return the last 100 lines
+                # Split by lines and filter out verbose debug messages
                 lines = content.splitlines()
-                lines = lines[-100:] if len(lines) > 100 else lines
-                return {'status': 'ok', 'logs': lines}
+                
+                # Filter out verbose debug lines
+                filtered_lines = []
+                verbose_patterns = [
+                    'Running in',
+                    'Retrieving',
+                    'Operation completed with status: ok',
+                    'Script started successfully',
+                    'Configuration loaded',
+                    'Poll completed successfully',
+                    'sleeping for 5 seconds',
+                    'Polling for external IPs',
+                    'Would check these IPs',
+                    'API calls disabled in daemon mode',
+                    'continuing to poll',
+                    'Database stats:',
+                    'Found 0 external IPs',
+                    'No external IPs found in current',
+                ]
+                
+                for line in lines:
+                    # Skip empty lines
+                    if not line.strip():
+                        continue
+                        
+                    # Check if line contains any verbose patterns
+                    is_verbose = False
+                    for pattern in verbose_patterns:
+                        if pattern.lower() in line.lower():
+                            is_verbose = True
+                            break
+                    
+                    # Only include non-verbose lines
+                    if not is_verbose:
+                        filtered_lines.append(line)
+                
+                # Get last 50 important lines and reverse them (most recent first)
+                important_lines = filtered_lines[-50:] if len(filtered_lines) > 50 else filtered_lines
+                important_lines.reverse()  # Most recent at top
+                
+                if not important_lines:
+                    return {'status': 'ok', 'logs': ['No important log entries found.']}
+                    
+                return {'status': 'ok', 'logs': important_lines}
+                
         except (IOError, PermissionError) as e:
             return {'status': 'error', 'message': f'Error reading log file: {str(e)}. Check permissions.'}
         
