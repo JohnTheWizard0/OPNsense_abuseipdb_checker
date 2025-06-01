@@ -22,13 +22,20 @@
                 <MaximumValue>30</MaximumValue>
                 <description>Number of days before rechecking an IP</description>
             </CheckFrequency>
-            <AbuseScoreThreshold type="IntegerField">
-                <default>80</default>
+            <SuspiciousThreshold type="IntegerField">
+                <default>40</default>
                 <Required>N</Required>
                 <MinimumValue>1</MinimumValue>
                 <MaximumValue>100</MaximumValue>
-                <description>Minimum confidence score to consider an IP a threat</description>
-            </AbuseScoreThreshold>
+                <description>Minimum score to consider an IP suspicious</description>
+            </SuspiciousThreshold>
+            <MaliciousThreshold type="IntegerField">
+                <default>70</default>
+                <Required>N</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>100</MaximumValue>
+                <description>Minimum score to consider an IP malicious</description>
+            </MaliciousThreshold>
             <DailyCheckLimit type="IntegerField">
                 <default>100</default>
                 <Required>N</Required>

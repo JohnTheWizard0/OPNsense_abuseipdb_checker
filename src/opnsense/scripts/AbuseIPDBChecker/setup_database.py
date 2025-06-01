@@ -45,7 +45,7 @@ def ensure_dir_exists():
     return {'status': 'ok'}
 
 def setup_database():
-    """Initialize the SQLite database"""
+    """Initialize the SQLite database with migration support"""
     try:
         # Ensure directory exists
         dir_result = ensure_dir_exists()
@@ -56,17 +56,32 @@ def setup_database():
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
 
-        # Create tables
+        # Create tables with new schema
         c.execute('''
         CREATE TABLE IF NOT EXISTS checked_ips (
             ip TEXT PRIMARY KEY,
             first_seen TEXT,
             last_checked TEXT,
             check_count INTEGER,
-            is_threat INTEGER DEFAULT 0
+            threat_level INTEGER DEFAULT 0
         )
         ''')
 
+        # Migration: Add threat_level column if it doesn't exist
+        c.execute('PRAGMA table_info(checked_ips)')
+        columns = [column[1] for column in c.fetchall()]
+        
+        if 'threat_level' not in columns:
+            if 'is_threat' in columns:
+                # Migrate existing data using old threshold logic
+                c.execute('ALTER TABLE checked_ips ADD COLUMN threat_level INTEGER DEFAULT 0')
+                c.execute('UPDATE checked_ips SET threat_level = 2 WHERE is_threat = 1')  # Old threats become malicious
+                c.execute('UPDATE checked_ips SET threat_level = 0 WHERE is_threat = 0')  # Old safe remain safe
+            else:
+                # New installation
+                c.execute('ALTER TABLE checked_ips ADD COLUMN threat_level INTEGER DEFAULT 0')
+
+        # Rest of table creation...
         c.execute('''
         CREATE TABLE IF NOT EXISTS threats (
             ip TEXT PRIMARY KEY,
@@ -75,10 +90,18 @@ def setup_database():
             last_seen TEXT,
             categories TEXT,
             country TEXT,
+            threat_level INTEGER DEFAULT 2,
             FOREIGN KEY (ip) REFERENCES checked_ips(ip)
         )
         ''')
 
+        # Add threat_level to threats table if missing
+        c.execute('PRAGMA table_info(threats)')
+        threat_columns = [column[1] for column in c.fetchall()]
+        if 'threat_level' not in threat_columns:
+            c.execute('ALTER TABLE threats ADD COLUMN threat_level INTEGER DEFAULT 2')
+
+        # Create stats table (unchanged)
         c.execute('''
         CREATE TABLE IF NOT EXISTS stats (
             key TEXT PRIMARY KEY,
@@ -98,7 +121,7 @@ def setup_database():
         # Set correct permissions
         os.chmod(DB_FILE, 0o640)
 
-        return {'status': 'ok', 'message': 'Database initialized successfully'}
+        return {'status': 'ok', 'message': 'Database initialized successfully with three-tier classification'}
     
     except Exception as e:
         return {'status': 'failed', 'message': f'Error initializing database: {str(e)}'}

@@ -19,10 +19,16 @@
         <help>Number of days before rechecking an IP address</help>
     </field>
     <field>
-        <id>abuseipdbchecker.general.AbuseScoreThreshold</id>
-        <label>Abuse Score Threshold</label>
+        <id>abuseipdbchecker.general.SuspiciousThreshold</id>
+        <label>Suspicious Score Threshold</label>
         <type>text</type>
-        <help>Minimum confidence score to consider an IP a threat (1-100)</help>
+        <help>Minimum confidence score to consider an IP suspicious (1-100)</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.MaliciousThreshold</id>
+        <label>Malicious Score Threshold</label>
+        <type>text</type>
+        <help>Minimum confidence score to consider an IP malicious (1-100)</help>
     </field>
     <field>
         <id>abuseipdbchecker.general.DailyCheckLimit</id>

@@ -157,6 +157,20 @@ class ServiceController extends ApiMutableServiceControllerBase
         return ["status" => "failed", "message" => "Unable to retrieve batch status"];
     }
 
+    /**
+     * get all checked IPs with three-tier classification
+     */
+    public function allipsAction()
+    {
+        $backend = new Backend();
+        $response = $backend->configdRun("abuseipdbchecker allips");
+        $bckresult = json_decode(trim($response), true);
+        if ($bckresult !== null) {
+            return $bckresult;
+        }
+        return ["status" => "failed", "message" => "Unable to retrieve all checked IPs"];
+    }
+
     protected function reconfigureForceRestart()
     {
         return 0;

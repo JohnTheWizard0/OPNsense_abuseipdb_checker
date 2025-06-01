@@ -157,6 +157,22 @@ def log_message(message):
         except Exception:
             pass  # Last resort, if even syslog fails, just silently continue
 
+def classify_threat_level(abuse_score):
+    """Classify threat level based on abuse score
+    Returns: 0 = Safe (<40%), 1 = Suspicious (40-69%), 2 = Malicious (≥70%)
+    """
+    if abuse_score < 40:
+        return 0  # Safe
+    elif abuse_score < 70:
+        return 1  # Suspicious
+    else:
+        return 2  # Malicious
+
+def get_threat_level_text(threat_level):
+    """Convert threat level to human-readable text"""
+    levels = {0: 'Safe', 1: 'Suspicious', 2: 'Malicious'}
+    return levels.get(threat_level, 'Unknown')
+
 def read_config():
     """Read configuration from OPNsense config file"""
     config = {
@@ -780,22 +796,22 @@ def run_checker(config):
             
             if report is not None:
                 abuse_score = report.get('abuseConfidenceScore', 0)
-                is_threat = abuse_score >= config['abuse_score_threshold']
+                threat_level = classify_threat_level(abuse_score)
                 
                 # Update or insert into checked_ips
                 if existing:
                     c.execute(
-                        'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, is_threat = ? WHERE ip = ?',
-                        (check_date, 1 if is_threat else 0, ip)
+                        'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, threat_level = ? WHERE ip = ?',
+                        (check_date, threat_level, ip)
                     )
                 else:
                     c.execute(
-                        'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, is_threat) VALUES (?, ?, ?, ?, ?)',
-                        (ip, check_date, check_date, 1, 1 if is_threat else 0)
+                        'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, threat_level) VALUES (?, ?, ?, ?, ?)',
+                        (ip, check_date, check_date, 1, threat_level)
                     )
                 
                 # If it's a threat, update or insert into threats table
-                if is_threat:
+                if threat_level >= 1:
                     categories = ','.join(str(cat) for cat in report.get('reports', [{'categories': []}])[0].get('categories', []))
                     
                     c.execute('SELECT * FROM threats WHERE ip = ?', (ip,))
@@ -813,7 +829,10 @@ def run_checker(config):
                     # Send email notification
                     send_email_notification(ip, report, config)
                     threats_detected += 1
-                
+                else:
+                    # Remove from threats table if it's now safe
+                    c.execute('DELETE FROM threats WHERE ip = ?', (ip,))
+
                 ips_checked += 1
                 daily_checks += 1
             
@@ -1078,9 +1097,9 @@ def test_ip(ip_address):
         c = conn.cursor()
         check_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         abuse_score = report.get('abuseConfidenceScore', 0)
-        is_threat = abuse_score >= config['abuse_score_threshold']
+        threat_level = classify_threat_level(abuse_score)
         
-        log_message(f"IP {ip_address}: Score={abuse_score}, Threshold={config['abuse_score_threshold']}, IsThreat={is_threat}")
+        log_message(f"IP {ip_address}: Score={abuse_score}, ThreatLevel={threat_level} ({get_threat_level_text(threat_level)})")
         
         # Update daily checks count
         daily_checks = int(get_db_stats(conn, 'daily_checks') or '0')
@@ -1092,19 +1111,19 @@ def test_ip(ip_address):
         
         if existing:
             c.execute(
-                'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, is_threat = ? WHERE ip = ?',
-                (check_date, 1 if is_threat else 0, ip_address)
+                'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, threat_level = ? WHERE ip = ?',
+                (check_date, threat_level, ip_address)
             )
             log_message(f"Updated checked_ips for {ip_address}: last_checked={check_date}")
         else:
             c.execute(
-                'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, is_threat) VALUES (?, ?, ?, ?, ?)',
-                (ip_address, check_date, check_date, 1, 1 if is_threat else 0)
+                'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, threat_level) VALUES (?, ?, ?, ?, ?)',
+                (ip_address, check_date, check_date, 1, threat_level)
             )
             log_message(f"Inserted into checked_ips for {ip_address}: last_checked={check_date}")
         
-        # Handle threats table - ALWAYS update if IP is a threat
-        if is_threat:
+        # Handle threats table - ALWAYS update if IP is suspicious or malicious
+        if threat_level >= 1:  # Suspicious or Malicious
             log_message(f"Processing threat: {ip_address} (Score: {abuse_score})")
             
             # Get categories if available
@@ -1153,11 +1172,11 @@ def test_ip(ip_address):
         # Update last check time
         update_db_stats(conn, 'last_check', check_date)
         
-        # Prepare result - ensure all values are strings to avoid JSON encoding issues
         result = {
             "status": "ok",
             "ip": ip_address,
-            "is_threat": is_threat,
+            "threat_level": threat_level,
+            "threat_text": get_threat_level_text(threat_level),
             "abuse_score": abuse_score,
             "country": str(report.get("countryCode", "Unknown")),
             "isp": str(report.get("isp", "Unknown")),
@@ -1183,7 +1202,7 @@ def test_ip(ip_address):
             conn.close()
 
 def list_external_ips():
-    """List external IPs from RECENT firewall logs only (last 500 lines)"""
+    """List external IPs with three-tier classification status"""
     try:
         config = read_config()
         
@@ -1193,81 +1212,8 @@ def list_external_ips():
         if not os.path.exists(config['log_file']):
             return {'status': 'error', 'message': f"Log file not found: {config['log_file']}"}
         
-        # Convert LAN subnets to network objects
-        lan_networks = []
-        for subnet in config['lan_subnets']:
-            try:
-                lan_networks.append(ipaddress.ip_network(subnet.strip()))
-            except ValueError:
-                continue
-        
-        external_ips = set()
-        
-        # Read ONLY last 500 lines for recent activity
-        with open(config['log_file'], 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-            recent_lines = lines[-500:] if len(lines) > 500 else lines
-        
-        for line in recent_lines:
-            if 'filterlog' not in line:
-                continue
-                
-            try:
-                if '] ' in line:
-                    csv_part = line.split('] ', 1)[1]
-                    fields = csv_part.split(',')
-                    
-                    if len(fields) < 20:
-                        continue
-                    
-                    action = fields[6].strip()
-                    ip_version = fields[8].strip()
-                    
-                    if ip_version != '4':
-                        continue
-                    
-                    if config['ignore_blocked_connections'] and action.lower() == 'block':
-                        continue
-                    
-                    src_ip = fields[18].strip() if len(fields) > 18 else ''
-                    dst_ip = fields[19].strip() if len(fields) > 19 else ''
-                    
-                    if not src_ip or not dst_ip:
-                        continue
-                    
-                    try:
-                        src_ip_obj = ipaddress.ip_address(src_ip)
-                        dst_ip_obj = ipaddress.ip_address(dst_ip)
-                        
-                        if (src_ip_obj.is_loopback or src_ip_obj.is_multicast or 
-                            src_ip_obj.is_reserved or src_ip_obj.is_link_local):
-                            continue
-                        
-                        # Check if source is external
-                        src_is_external = not src_ip_obj.is_private
-                        for network in lan_networks:
-                            if src_ip_obj in network:
-                                src_is_external = False
-                                break
-                        
-                        # Check if destination is internal
-                        dst_is_internal = dst_ip_obj.is_private
-                        for network in lan_networks:
-                            if dst_ip_obj in network:
-                                dst_is_internal = True
-                                break
-                        
-                        # Only external→internal traffic
-                        if src_is_external and dst_is_internal:
-                            external_ips.add(src_ip)
-                            
-                    except ValueError:
-                        continue
-                        
-            except Exception:
-                continue
-        
-        # Convert to list and check database status
+        # Parse firewall logs (existing logic)...
+        external_ips = parse_log_for_ips(config, recent_only=True)
         ip_list = sorted(list(external_ips))
         results = []
         
@@ -1277,7 +1223,7 @@ def list_external_ips():
             c = conn.cursor()
             
             for ip in ip_list:
-                c.execute('SELECT last_checked, is_threat FROM checked_ips WHERE ip = ?', (ip,))
+                c.execute('SELECT last_checked, threat_level FROM checked_ips WHERE ip = ?', (ip,))
                 db_row = c.fetchone()
                 
                 ip_info = {
@@ -1289,7 +1235,13 @@ def list_external_ips():
                 
                 if db_row:
                     ip_info['checked'] = 'Yes'
-                    ip_info['threat_status'] = 'Threat' if db_row['is_threat'] else 'Safe'
+                    threat_level = db_row['threat_level'] or 0
+                    if threat_level == 0:
+                        ip_info['threat_status'] = 'Safe'
+                    elif threat_level == 1:
+                        ip_info['threat_status'] = 'Suspicious'
+                    else:
+                        ip_info['threat_status'] = 'Threat'
                     ip_info['last_checked'] = db_row['last_checked']
                     
                 results.append(ip_info)
@@ -1306,7 +1258,7 @@ def list_external_ips():
         
         return {
             'status': 'ok',
-            'message': f'Found {len(results)} external IPs in recent logs (last 500 lines)',
+            'message': f'Found {len(results)} external IPs in recent logs',
             'ips': results,
             'total_count': len(results)
         }
@@ -1408,6 +1360,59 @@ def run_daemon():
             time.sleep(poll_interval)
     
     log_message("AbuseIPDB Checker daemon shutting down")
+
+def get_all_checked_ips():
+    """Get all checked IPs with three-tier classification"""
+    if not os.path.exists(DB_FILE):
+        return {'status': 'error', 'message': 'Database not initialized'}
+    
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        c.execute('''
+        SELECT 
+            ci.ip,
+            ci.last_checked,
+            ci.threat_level,
+            ci.check_count,
+            t.abuse_score,
+            t.reports,
+            t.country,
+            t.categories
+        FROM checked_ips ci
+        LEFT JOIN threats t ON ci.ip = t.ip
+        ORDER BY ci.last_checked DESC
+        LIMIT 100
+        ''')
+        
+        ips = []
+        for row in c.fetchall():
+            ips.append({
+                'ip': row['ip'],
+                'last_checked': row['last_checked'],
+                'threat_level': row['threat_level'] or 0,
+                'threat_text': get_threat_level_text(row['threat_level'] or 0),
+                'check_count': row['check_count'],
+                'abuse_score': row['abuse_score'] or 0,
+                'reports': row['reports'] or 0,
+                'country': row['country'] or 'Unknown',
+                'categories': row['categories'] or ''
+            })
+        
+        return {
+            'status': 'ok',
+            'ips': ips,
+            'total_count': len(ips)
+        }
+    
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error retrieving checked IPs: {str(e)}'}
+    finally:
+        if conn:
+            conn.close()
 
 def process_ip_batch(ip_batch, config):
     """Process a batch of IPs collected over the interval"""
@@ -1627,8 +1632,8 @@ def main():
         
         # Parse command line arguments
         parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
-        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'listips', 'debuglog', 'connections', 'daemon', 'batchstatus'],
-                   help='Operation mode')
+        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'listips', 'debuglog', 'connections', 'daemon', 'batchstatus', 'allips'],
+                help='Operation mode')
         parser.add_argument('ip', nargs='?', help='IP address to test (only for testip mode)')
         
         # Handle no arguments case - avoid crash
@@ -1676,6 +1681,9 @@ def main():
         elif args.mode == 'batchstatus':
             log_message("Getting batch processing status")
             result = get_batch_status()
+        elif args.mode == 'allips':
+            log_message("Retrieving all checked IPs")
+            result = get_all_checked_ips()
         elif args.mode == 'daemon':
             # Don't return JSON for daemon mode, just run
             log_message("Starting daemon mode")
