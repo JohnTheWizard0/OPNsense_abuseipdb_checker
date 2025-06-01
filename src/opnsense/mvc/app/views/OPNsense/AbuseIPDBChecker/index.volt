@@ -1,6 +1,194 @@
 <script>
     $(document).ready(function() {
         
+         // Country flags data - embedded for reliability
+         var countryFlags = {
+            "AD": {"name": "Andorra", "flag": "🇦🇩"},
+            "AE": {"name": "United Arab Emirates", "flag": "🇦🇪"},
+            "AF": {"name": "Afghanistan", "flag": "🇦🇫"},
+            "AG": {"name": "Antigua and Barbuda", "flag": "🇦🇬"},
+            "AI": {"name": "Anguilla", "flag": "🇦🇮"},
+            "AL": {"name": "Albania", "flag": "🇦🇱"},
+            "AM": {"name": "Armenia", "flag": "🇦🇲"},
+            "AO": {"name": "Angola", "flag": "🇦🇴"},
+            "AR": {"name": "Argentina", "flag": "🇦🇷"},
+            "AT": {"name": "Austria", "flag": "🇦🇹"},
+            "AU": {"name": "Australia", "flag": "🇦🇺"},
+            "AZ": {"name": "Azerbaijan", "flag": "🇦🇿"},
+            "BA": {"name": "Bosnia and Herzegovina", "flag": "🇧🇦"},
+            "BB": {"name": "Barbados", "flag": "🇧🇧"},
+            "BD": {"name": "Bangladesh", "flag": "🇧🇩"},
+            "BE": {"name": "Belgium", "flag": "🇧🇪"},
+            "BG": {"name": "Bulgaria", "flag": "🇧🇬"},
+            "BH": {"name": "Bahrain", "flag": "🇧🇭"},
+            "BO": {"name": "Bolivia", "flag": "🇧🇴"},
+            "BR": {"name": "Brazil", "flag": "🇧🇷"},
+            "BS": {"name": "Bahamas", "flag": "🇧🇸"},
+            "BW": {"name": "Botswana", "flag": "🇧🇼"},
+            "BY": {"name": "Belarus", "flag": "🇧🇾"},
+            "BZ": {"name": "Belize", "flag": "🇧🇿"},
+            "CA": {"name": "Canada", "flag": "🇨🇦"},
+            "CH": {"name": "Switzerland", "flag": "🇨🇭"},
+            "CL": {"name": "Chile", "flag": "🇨🇱"},
+            "CN": {"name": "China", "flag": "🇨🇳"},
+            "CO": {"name": "Colombia", "flag": "🇨🇴"},
+            "CR": {"name": "Costa Rica", "flag": "🇨🇷"},
+            "CU": {"name": "Cuba", "flag": "🇨🇺"},
+            "CY": {"name": "Cyprus", "flag": "🇨🇾"},
+            "CZ": {"name": "Czechia", "flag": "🇨🇿"},
+            "DE": {"name": "Germany", "flag": "🇩🇪"},
+            "DK": {"name": "Denmark", "flag": "🇩🇰"},
+            "DO": {"name": "Dominican Republic", "flag": "🇩🇴"},
+            "DZ": {"name": "Algeria", "flag": "🇩🇿"},
+            "EC": {"name": "Ecuador", "flag": "🇪🇨"},
+            "EE": {"name": "Estonia", "flag": "🇪🇪"},
+            "EG": {"name": "Egypt", "flag": "🇪🇬"},
+            "ES": {"name": "Spain", "flag": "🇪🇸"},
+            "ET": {"name": "Ethiopia", "flag": "🇪🇹"},
+            "FI": {"name": "Finland", "flag": "🇫🇮"},
+            "FJ": {"name": "Fiji", "flag": "🇫🇯"},
+            "FR": {"name": "France", "flag": "🇫🇷"},
+            "GB": {"name": "United Kingdom", "flag": "🇬🇧"},
+            "GE": {"name": "Georgia", "flag": "🇬🇪"},
+            "GH": {"name": "Ghana", "flag": "🇬🇭"},
+            "GR": {"name": "Greece", "flag": "🇬🇷"},
+            "GT": {"name": "Guatemala", "flag": "🇬🇹"},
+            "HK": {"name": "Hong Kong", "flag": "🇭🇰"},
+            "HN": {"name": "Honduras", "flag": "🇭🇳"},
+            "HR": {"name": "Croatia", "flag": "🇭🇷"},
+            "HT": {"name": "Haiti", "flag": "🇭🇹"},
+            "HU": {"name": "Hungary", "flag": "🇭🇺"},
+            "ID": {"name": "Indonesia", "flag": "🇮🇩"},
+            "IE": {"name": "Ireland", "flag": "🇮🇪"},
+            "IL": {"name": "Israel", "flag": "🇮🇱"},
+            "IN": {"name": "India", "flag": "🇮🇳"},
+            "IQ": {"name": "Iraq", "flag": "🇮🇶"},
+            "IR": {"name": "Iran", "flag": "🇮🇷"},
+            "IS": {"name": "Iceland", "flag": "🇮🇸"},
+            "IT": {"name": "Italy", "flag": "🇮🇹"},
+            "JM": {"name": "Jamaica", "flag": "🇯🇲"},
+            "JO": {"name": "Jordan", "flag": "🇯🇴"},
+            "JP": {"name": "Japan", "flag": "🇯🇵"},
+            "KE": {"name": "Kenya", "flag": "🇰🇪"},
+            "KG": {"name": "Kyrgyzstan", "flag": "🇰🇬"},
+            "KH": {"name": "Cambodia", "flag": "🇰🇭"},
+            "KP": {"name": "North Korea", "flag": "🇰🇵"},
+            "KR": {"name": "South Korea", "flag": "🇰🇷"},
+            "KW": {"name": "Kuwait", "flag": "🇰🇼"},
+            "KZ": {"name": "Kazakhstan", "flag": "🇰🇿"},
+            "LA": {"name": "Laos", "flag": "🇱🇦"},
+            "LB": {"name": "Lebanon", "flag": "🇱🇧"},
+            "LI": {"name": "Liechtenstein", "flag": "🇱🇮"},
+            "LK": {"name": "Sri Lanka", "flag": "🇱🇰"},
+            "LT": {"name": "Lithuania", "flag": "🇱🇹"},
+            "LU": {"name": "Luxembourg", "flag": "🇱🇺"},
+            "LV": {"name": "Latvia", "flag": "🇱🇻"},
+            "LY": {"name": "Libya", "flag": "🇱🇾"},
+            "MA": {"name": "Morocco", "flag": "🇲🇦"},
+            "MD": {"name": "Moldova", "flag": "🇲🇩"},
+            "ME": {"name": "Montenegro", "flag": "🇲🇪"},
+            "MK": {"name": "North Macedonia", "flag": "🇲🇰"},
+            "MM": {"name": "Myanmar", "flag": "🇲🇲"},
+            "MN": {"name": "Mongolia", "flag": "🇲🇳"},
+            "MO": {"name": "Macao", "flag": "🇲🇴"},
+            "MX": {"name": "Mexico", "flag": "🇲🇽"},
+            "MY": {"name": "Malaysia", "flag": "🇲🇾"},
+            "MZ": {"name": "Mozambique", "flag": "🇲🇿"},
+            "NA": {"name": "Namibia", "flag": "🇳🇦"},
+            "NG": {"name": "Nigeria", "flag": "🇳🇬"},
+            "NI": {"name": "Nicaragua", "flag": "🇳🇮"},
+            "NL": {"name": "Netherlands", "flag": "🇳🇱"},
+            "NO": {"name": "Norway", "flag": "🇳🇴"},
+            "NP": {"name": "Nepal", "flag": "🇳🇵"},
+            "NZ": {"name": "New Zealand", "flag": "🇳🇿"},
+            "OM": {"name": "Oman", "flag": "🇴🇲"},
+            "PA": {"name": "Panama", "flag": "🇵🇦"},
+            "PE": {"name": "Peru", "flag": "🇵🇪"},
+            "PH": {"name": "Philippines", "flag": "🇵🇭"},
+            "PK": {"name": "Pakistan", "flag": "🇵🇰"},
+            "PL": {"name": "Poland", "flag": "🇵🇱"},
+            "PT": {"name": "Portugal", "flag": "🇵🇹"},
+            "PY": {"name": "Paraguay", "flag": "🇵🇾"},
+            "QA": {"name": "Qatar", "flag": "🇶🇦"},
+            "RO": {"name": "Romania", "flag": "🇷🇴"},
+            "RS": {"name": "Serbia", "flag": "🇷🇸"},
+            "RU": {"name": "Russia", "flag": "🇷🇺"},
+            "RW": {"name": "Rwanda", "flag": "🇷🇼"},
+            "SA": {"name": "Saudi Arabia", "flag": "🇸🇦"},
+            "SD": {"name": "Sudan", "flag": "🇸🇩"},
+            "SE": {"name": "Sweden", "flag": "🇸🇪"},
+            "SG": {"name": "Singapore", "flag": "🇸🇬"},
+            "SI": {"name": "Slovenia", "flag": "🇸🇮"},
+            "SK": {"name": "Slovakia", "flag": "🇸🇰"},
+            "SN": {"name": "Senegal", "flag": "🇸🇳"},
+            "SO": {"name": "Somalia", "flag": "🇸🇴"},
+            "SY": {"name": "Syria", "flag": "🇸🇾"},
+            "TH": {"name": "Thailand", "flag": "🇹🇭"},
+            "TJ": {"name": "Tajikistan", "flag": "🇹🇯"},
+            "TN": {"name": "Tunisia", "flag": "🇹🇳"},
+            "TR": {"name": "Turkey", "flag": "🇹🇷"},
+            "TW": {"name": "Taiwan", "flag": "🇹🇼"},
+            "TZ": {"name": "Tanzania", "flag": "🇹🇿"},
+            "UA": {"name": "Ukraine", "flag": "🇺🇦"},
+            "UG": {"name": "Uganda", "flag": "🇺🇬"},
+            "US": {"name": "United States", "flag": "🇺🇸"},
+            "UY": {"name": "Uruguay", "flag": "🇺🇾"},
+            "UZ": {"name": "Uzbekistan", "flag": "🇺🇿"},
+            "VE": {"name": "Venezuela", "flag": "🇻🇪"},
+            "VN": {"name": "Vietnam", "flag": "🇻🇳"},
+            "YE": {"name": "Yemen", "flag": "🇾🇪"},
+            "ZA": {"name": "South Africa", "flag": "🇿🇦"},
+            "ZM": {"name": "Zambia", "flag": "🇿🇲"},
+            "ZW": {"name": "Zimbabwe", "flag": "🇿🇼"}
+        };
+
+        // Helper function to get country flag and name
+        function getCountryDisplay(countryCode) {
+            if (!countryCode || countryCode === 'Unknown' || countryCode === '' || countryCode === null) {
+                return 'Unknown';
+            }
+            
+            var code = String(countryCode).toUpperCase().trim();
+            var country = countryFlags[code];
+            
+            if (country && country.flag && country.name) {
+                return '<span class="country-flag">' + country.flag + '</span> ' + country.name;
+            }
+            
+            // Fallback: just return the country code
+            return code;
+        }
+
+        // Helper function to get just the flag emoji
+        function getCountryFlag(countryCode) {
+            if (!countryCode || countryCode === 'Unknown' || countryCode === '' || countryCode === null) {
+                return '';
+            }
+            
+            var code = String(countryCode).toUpperCase().trim();
+            var country = countryFlags[code];
+            
+            if (country && country.flag) {
+                return country.flag;
+            }
+            
+            return '';
+        }
+        
+        // Load initial data
+        var data_get_map = {
+            'frm_general': "/api/abuseipdbchecker/settings/get",
+            'frm_network': "/api/abuseipdbchecker/settings/get",
+            'frm_api': "/api/abuseipdbchecker/settings/get",
+            'frm_email': "/api/abuseipdbchecker/settings/get"
+        };
+        mapDataToFormUI(data_get_map).done(function() {
+            formatTokenizersUI();
+            $('.selectpicker').selectpicker('refresh');
+            // Update statistics after form load
+            updateStats();
+        });
+
         // Load initial data
         var data_get_map = {
             'frm_general': "/api/abuseipdbchecker/settings/get",
@@ -146,7 +334,7 @@
                             '<span class="label label-danger">{{ lang._("Malicious") }}</span>' : 
                             '<span class="label label-success">{{ lang._("Safe") }}</span>');
                         $("#result-score").text(data.abuse_score + "%");
-                        $("#result-country").text(data.country);
+                        $("#result-country").html(getCountryDisplay(data.country));
                         $("#result-isp").text(data.isp);
                         $("#result-domain").text(data.domain);
                         $("#result-reports").text(data.reports);
@@ -227,7 +415,7 @@
                             row.append($('<td>').text(threat.ip));
                             row.append($('<td>').text(threat.score + '%'));
                             row.append($('<td>').text(threat.last_seen));
-                            row.append($('<td>').text(threat.country));
+                            row.append($('<td>').html(getCountryDisplay(threat.country)));
                             row.append($('<td>').html('<a href="https://www.abuseipdb.com/check/' + threat.ip + '" target="_blank">{{ lang._("View") }}</a>'));
                             threatTable.append(row);
                         });
@@ -300,6 +488,15 @@
         updateLogs();
     });
 </script>
+
+
+<style>
+.country-flag {
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+    font-size: 1.2em;
+}
+</style>
+    
 
 <!-- Main Settings Tabs -->
 <ul class="nav nav-tabs" role="tablist" id="maintabs">
