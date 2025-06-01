@@ -132,6 +132,20 @@ class ServiceController extends ApiMutableServiceControllerBase
         return array("status" => "failed", "message" => "POST request required");
     }
 
+    /**
+     * list external IPs from firewall logs
+     */
+    public function listipsAction()
+    {
+        $backend = new Backend();
+        $response = $backend->configdRun("abuseipdbchecker listips");
+        $bckresult = json_decode(trim($response), true);
+        if ($bckresult !== null) {
+            return $bckresult;
+        }
+        return ["status" => "failed", "message" => "Unable to retrieve external IPs"];
+    }
+
     protected function reconfigureForceRestart()
     {
         return 0;

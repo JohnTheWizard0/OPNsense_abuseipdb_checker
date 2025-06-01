@@ -11,7 +11,7 @@
                 <description>Enable AbuseIPDB Checker</description>
             </Enabled>
             <LogFile type="TextField">
-                <default>/var/log/filter.log</default>
+                <default>/var/log/filter/latest.log</default>
                 <Required>N</Required>
                 <description>Firewall log file path</description>
             </LogFile>

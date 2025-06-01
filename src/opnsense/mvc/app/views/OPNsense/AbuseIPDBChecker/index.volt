@@ -214,6 +214,20 @@
                         updateStats();
                         updateThreats();
                         updateLogs();
+
+                        // AUTO-REFRESH External IPs tab to show updated status immediately
+                        updateExternalIPs();
+                        
+                        // Show visual feedback that external IPs were updated
+                        setTimeout(function() {
+                            if ($("#external-ips-info").is(":visible")) {
+                                $("#external-ips-info").removeClass("alert-success alert-warning alert-danger")
+                                    .addClass("alert-info")
+                                    .text("{{ lang._('External IPs updated - IP ') }}" + data.ip + "{{ lang._(' status refreshed') }}")
+                                    .fadeIn().delay(3000).fadeOut();
+                            }
+                        }, 500);
+
                     } else {
                         // Show error
                         $("#testResultAlert").removeClass("alert-info alert-success alert-warning")
@@ -257,6 +271,73 @@
             });
         });
         
+        function updateExternalIPs() {
+            $("#external-ips-info").show().text("{{ lang._('Loading external IPs...') }}");
+            $("#external-ips-table").empty();
+            
+            ajaxCall("/api/abuseipdbchecker/service/listips", {}, function(data) {
+                $("#external-ips-info").hide();
+                
+                if (data && data.status === 'ok' && data.ips) {
+                    var ipTable = $("#external-ips-table");
+                    ipTable.empty();
+                    
+                    if (data.ips.length === 0) {
+                        ipTable.append('<tr><td colspan="5">{{ lang._("No external IPs found in firewall logs") }}</td></tr>');
+                    } else {
+                        $("#external-ips-info").removeClass("alert-info alert-danger")
+                            .addClass("alert-success")
+                            .text("{{ lang._('Found ') }}" + data.total_count + "{{ lang._(' external IPs') }}")
+                            .show();
+                        
+                        $.each(data.ips, function(i, ipData) {
+                            var row = $('<tr>');
+                            row.append($('<td>').text(ipData.ip));
+                            row.append($('<td>').text(ipData.checked));
+                            
+                            var statusCell = $('<td>');
+                            if (ipData.threat_status === 'Threat') {
+                                statusCell.html('<span class="label label-danger">{{ lang._("Threat") }}</span>');
+                            } else if (ipData.threat_status === 'Safe') {
+                                statusCell.html('<span class="label label-success">{{ lang._("Safe") }}</span>');
+                            } else {
+                                statusCell.html('<span class="label label-default">{{ lang._("Unknown") }}</span>');
+                            }
+                            row.append(statusCell);
+                            
+                            row.append($('<td>').text(ipData.last_checked));
+                            
+                            var actionsCell = $('<td>');
+                            actionsCell.html('<button class="btn btn-xs btn-primary test-ip-btn" data-ip="' + ipData.ip + '">{{ lang._("Test Now") }}</button>');
+                            row.append(actionsCell);
+                            
+                            ipTable.append(row);
+                        });
+                        
+                        // Add click handlers for test buttons
+                        $('.test-ip-btn').click(function() {
+                            var ip = $(this).data('ip');
+                            $("#ipToTest").val(ip);
+                            $('a[href="#testip"]').tab('show');
+                            $("#testIpBtn").click();
+                        });
+                    }
+                } else if (data && data.status === 'disabled') {
+                    $("#external-ips-info").removeClass("alert-info alert-success")
+                        .addClass("alert-warning")
+                        .text("{{ lang._('AbuseIPDBChecker is disabled. Enable it in General settings to see external IPs.') }}")
+                        .show();
+                    $("#external-ips-table").append('<tr><td colspan="5">{{ lang._("Service is disabled") }}</td></tr>');
+                } else {
+                    $("#external-ips-info").removeClass("alert-info alert-success")
+                        .addClass("alert-danger")
+                        .text(data.message || "{{ lang._('Error retrieving external IPs') }}")
+                        .show();
+                    $("#external-ips-table").append('<tr><td colspan="5">{{ lang._("Error loading external IPs") }}</td></tr>');
+                }
+            });
+        }
+
         // Functions to update the dashboard data
         function updateStats() {
             ajaxCall("/api/abuseipdbchecker/service/stats", {}, function(data) {
@@ -338,6 +419,8 @@
             var target = $(e.target).attr("href");
             if (target === "#stats") {
                 updateStats();
+            } else if (target === "#externalips") {
+                updateExternalIPs();
             } else if (target === "#threats") {
                 updateThreats();
             } else if (target === "#logs") {
@@ -347,11 +430,13 @@
         
         // Refresh buttons
         $("#refreshStats").click(updateStats);
+        $("#refreshExternalIPs").click(updateExternalIPs);
         $("#refreshThreats").click(updateThreats);
         $("#refreshLogs").click(updateLogs);
         
         // Initial data load
         updateStats();
+        updateExternalIPs();
         updateThreats();
         updateLogs();
     });
@@ -483,6 +568,7 @@
 <div class="content-box" style="margin-top: 20px;">
     <ul class="nav nav-tabs" data-tabs="tabs" id="abuseipdb-tabs">
         <li class="active"><a data-toggle="tab" href="#stats">{{ lang._('Statistics') }}</a></li>
+        <li><a data-toggle="tab" href="#externalips">{{ lang._('External IPs') }}</a></li>
         <li><a data-toggle="tab" href="#threats">{{ lang._('Recent Threats') }}</a></li>
         <li><a data-toggle="tab" href="#logs">{{ lang._('Logs') }}</a></li>
     </ul>
@@ -522,6 +608,41 @@
                                     <td>{{ lang._('Last Run') }}</td>
                                     <td id="last-run">Never</td>
                                 </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- External IPs Tab -->
+        <div id="externalips" class="tab-pane fade">
+            <div class="container-fluid">
+                <div class="row">
+                    <div class="col-md-12">
+                        <button id="refreshExternalIPs" class="btn btn-xs btn-primary pull-right">
+                            <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                        </button>
+                        <p class="text-muted">{{ lang._('External IPs detected from firewall logs based on current configuration') }}</p>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div id="external-ips-info" class="alert alert-info" style="display: none;">
+                            {{ lang._('Loading external IPs...') }}
+                        </div>
+                        <table class="table table-striped table-condensed">
+                            <thead>
+                                <tr>
+                                    <th>{{ lang._('IP Address') }}</th>
+                                    <th>{{ lang._('Previously Checked') }}</th>
+                                    <th>{{ lang._('Status') }}</th>
+                                    <th>{{ lang._('Last Checked') }}</th>
+                                    <th>{{ lang._('Actions') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody id="external-ips-table">
+                                <!-- Dynamically populated -->
                             </tbody>
                         </table>
                     </div>
