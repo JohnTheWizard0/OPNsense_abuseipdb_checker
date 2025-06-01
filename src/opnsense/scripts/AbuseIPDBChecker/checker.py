@@ -337,14 +337,33 @@ def parse_log_for_ips(config):
                             if proto_name.lower() in [p.lower() for p in config['ignore_protocols']]:
                                 continue
                             
-                            # For IPv4 TCP/UDP, source IP is typically at position 17, destination at 18
-                            if proto_num in [6, 17] and len(fields) > 18:  # TCP or UDP
-                                src_ip = fields[17].strip() if len(fields) > 17 else ''
-                                dst_ip = fields[18].strip() if len(fields) > 18 else ''
-                            elif len(fields) > 16:  # Other protocols  
-                                src_ip = fields[16].strip() if len(fields) > 16 else ''
-                                dst_ip = fields[17].strip() if len(fields) > 17 else ''
+                            # Use same field positions as debug function (which works correctly)
+                            if len(fields) > 19:
+                                proto = fields[15].strip() if len(fields) > 15 else ''
+                                src_ip = fields[18].strip() if len(fields) > 18 else ''
+                                dst_ip = fields[19].strip() if len(fields) > 19 else ''
                             else:
+                                continue
+
+                            # Convert protocol number to name for filtering
+                            try:
+                                proto_num = int(proto) if proto else 0
+                                proto_name = ''
+                                if proto_num == 1:
+                                    proto_name = 'icmp'
+                                elif proto_num == 2:
+                                    proto_name = 'igmp'
+                                elif proto_num == 6:
+                                    proto_name = 'tcp'
+                                elif proto_num == 17:
+                                    proto_name = 'udp'
+                                else:
+                                    proto_name = str(proto_num)
+                                
+                                if proto_name.lower() in [p.lower() for p in config['ignore_protocols']]:
+                                    continue
+                                    
+                            except (ValueError, IndexError):
                                 continue
                                 
                         except (ValueError, IndexError):
@@ -352,46 +371,47 @@ def parse_log_for_ips(config):
                     else:
                         continue
                     
-                    # Process based on direction
-                    if direction.lower() == 'in' and src_ip:
-                        # Incoming traffic - external source
-                        ip = src_ip
-                    elif direction.lower() == 'out' and dst_ip:
-                        # Outgoing traffic - external destination  
-                        ip = dst_ip
-                    else:
+                    # We want: External Source IP → Internal Destination IP
+                    # Skip if no valid IPs
+                    if not src_ip or not dst_ip:
                         continue
-                            
+
                     try:
-                        ip_obj = ipaddress.ip_address(ip)
+                        src_ip_obj = ipaddress.ip_address(src_ip)
+                        dst_ip_obj = ipaddress.ip_address(dst_ip)
                         
-                        # Skip localhost, multicast, reserved ranges
-                        if (ip_obj.is_loopback or 
-                            ip_obj.is_multicast or 
-                            ip_obj.is_reserved or
-                            ip_obj.is_link_local):
+                        # Skip if source is localhost, multicast, reserved, or link-local
+                        if (src_ip_obj.is_loopback or src_ip_obj.is_multicast or 
+                            src_ip_obj.is_reserved or src_ip_obj.is_link_local):
                             continue
                         
-                        # Skip RFC 1918 private addresses
-                        if ip_obj.is_private:
-                            continue
-                        
-                        # Skip if IP is in any configured LAN subnet
-                        is_lan_ip = False
+                        # Check if source IP is external (not in any LAN subnet)
+                        src_is_external = not src_ip_obj.is_private
                         for network in lan_networks:
                             try:
-                                if ip_obj in network:
-                                    is_lan_ip = True
+                                if src_ip_obj in network:
+                                    src_is_external = False
                                     break
                             except ValueError:
                                 continue
                         
-                        if not is_lan_ip:
-                            external_ips.add(ip)
+                        # Check if destination IP is internal (in LAN subnets or private)
+                        dst_is_internal = dst_ip_obj.is_private
+                        for network in lan_networks:
+                            try:
+                                if dst_ip_obj in network:
+                                    dst_is_internal = True
+                                    break
+                            except ValueError:
+                                continue
+                        
+                        # Only process if: External Source → Internal Destination
+                        if src_is_external and dst_is_internal:
+                            external_ips.add(src_ip)
                             parsed_entries += 1
                             
                     except ValueError:
-                        # Invalid IP address
+                        # Invalid IP addresses
                         continue
                         
                 except Exception as e:
@@ -484,28 +504,39 @@ def debug_real_parsing():
                     'result': 'unknown'
                 }
                 
-                # Apply filters step by step
-                if direction.lower() != 'in':
-                    step['result'] = 'skipped_not_incoming'
-                elif not src_ip:
-                    step['result'] = 'skipped_no_src_ip'
-                elif config['ignore_blocked_connections'] and action.lower() == 'block':
-                    step['result'] = 'filtered_blocked'
-                    debug_results['filtered_out']['blocked'].append(src_ip)
-                elif proto.lower() in [p.lower() for p in config['ignore_protocols']]:
-                    step['result'] = 'filtered_protocol'
-                    debug_results['filtered_out']['protocols'].append(src_ip)
+                # Apply filters step by step - check source/destination instead of direction
+                if not src_ip or not dst_ip:
+                    step['result'] = 'skipped_no_ips'
                 else:
-                    # Check IP validity and networks
                     try:
-                        ip_obj = ipaddress.ip_address(src_ip)
+                        src_ip_obj = ipaddress.ip_address(src_ip)
+                        dst_ip_obj = ipaddress.ip_address(dst_ip)
                         
-                        if ip_obj.is_private:
-                            step['result'] = 'filtered_private'
+                        # Check if source is external
+                        src_is_external = not src_ip_obj.is_private
+                        for network in lan_networks:
+                            if src_ip_obj in network:
+                                src_is_external = False
+                                break
+                        
+                        # Check if destination is internal  
+                        dst_is_internal = dst_ip_obj.is_private
+                        for network in lan_networks:
+                            if dst_ip_obj in network:
+                                dst_is_internal = True
+                                break
+                        
+                        if not src_is_external:
+                            step['result'] = 'skipped_src_not_external'
                             debug_results['filtered_out']['private_ips'].append(src_ip)
-                        elif any(ip_obj in network for network in lan_networks):
-                            step['result'] = 'filtered_lan'
-                            debug_results['filtered_out']['lan_ips'].append(src_ip)
+                        elif not dst_is_internal:
+                            step['result'] = 'skipped_dst_not_internal'
+                        elif config['ignore_blocked_connections'] and action.lower() == 'block':
+                            step['result'] = 'filtered_blocked'
+                            debug_results['filtered_out']['blocked'].append(src_ip)
+                        elif proto.lower() in [p.lower() for p in config['ignore_protocols']]:
+                            step['result'] = 'filtered_protocol'
+                            debug_results['filtered_out']['protocols'].append(src_ip)
                         else:
                             step['result'] = 'ACCEPTED'
                             debug_results['accepted_ips'].append(src_ip)
