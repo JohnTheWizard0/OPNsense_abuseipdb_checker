@@ -291,7 +291,6 @@ def parse_log_for_ips(config):
                 
                 try:
                     # Extract the structured log data after the syslog header
-                    # Format: <priority>version timestamp hostname filterlog procid - [meta ...] csv_data
                     if '] ' in line:
                         csv_part = line.split('] ', 1)[1]
                     else:
@@ -300,64 +299,101 @@ def parse_log_for_ips(config):
                     # Split CSV data
                     fields = csv_part.split(',')
                     
-                    # OPNsense filterlog format (approximate field positions):
-                    # 0:rule_num, 1:sub_rule, 2:anchor, 3:tracker, 4:interface, 5:reason, 6:action, 7:dir, 
-                    # 8:version, 9:tos, 10:ecn, 11:ttl, 12:id, 13:offset, 14:flags, 15:proto_id, 16:proto, 
-                    # 17:length, 18:src_ip, 19:dst_ip, 20:src_port, 21:dst_port, ...
-                    
+                    # Ensure we have enough fields
                     if len(fields) < 20:
                         continue
                     
+                    # Correct field positions for OPNsense/pfSense format
                     action = fields[6].strip() if len(fields) > 6 else ''
                     direction = fields[7].strip() if len(fields) > 7 else ''
-                    proto = fields[16].strip() if len(fields) > 16 else ''
-                    src_ip = fields[18].strip() if len(fields) > 18 else ''
-                    dst_ip = fields[19].strip() if len(fields) > 19 else ''
+                    ip_version = fields[8].strip() if len(fields) > 8 else ''
+                    
+                    # Only process IPv4 for now
+                    if ip_version != '4':
+                        continue
                     
                     # Skip blocked connections if configured
                     if config['ignore_blocked_connections'] and action.lower() == 'block':
                         continue
                     
-                    # Skip ignored protocols
-                    if proto.lower() in [p.lower() for p in config['ignore_protocols']]:
+                    # For IPv4, protocol is at position 15, src_ip varies by protocol
+                    if len(fields) > 15:
+                        try:
+                            proto_num = int(fields[15].strip())
+                            
+                            # Skip ignored protocols by number
+                            proto_name = ''
+                            if proto_num == 1:
+                                proto_name = 'icmp'
+                            elif proto_num == 2:
+                                proto_name = 'igmp'
+                            elif proto_num == 6:
+                                proto_name = 'tcp'
+                            elif proto_num == 17:
+                                proto_name = 'udp'
+                            else:
+                                proto_name = str(proto_num)
+                            
+                            if proto_name.lower() in [p.lower() for p in config['ignore_protocols']]:
+                                continue
+                            
+                            # For IPv4 TCP/UDP, source IP is typically at position 17, destination at 18
+                            if proto_num in [6, 17] and len(fields) > 18:  # TCP or UDP
+                                src_ip = fields[17].strip() if len(fields) > 17 else ''
+                                dst_ip = fields[18].strip() if len(fields) > 18 else ''
+                            elif len(fields) > 16:  # Other protocols  
+                                src_ip = fields[16].strip() if len(fields) > 16 else ''
+                                dst_ip = fields[17].strip() if len(fields) > 17 else ''
+                            else:
+                                continue
+                                
+                        except (ValueError, IndexError):
+                            continue
+                    else:
                         continue
                     
-                    # Process both source and destination IPs
+                    # Process based on direction
                     if direction.lower() == 'in' and src_ip:
+                        # Incoming traffic - external source
                         ip = src_ip
+                    elif direction.lower() == 'out' and dst_ip:
+                        # Outgoing traffic - external destination  
+                        ip = dst_ip
+                    else:
+                        continue
                             
-                        try:
-                            ip_obj = ipaddress.ip_address(ip)
-                            
-                            # Skip localhost, multicast, reserved ranges
-                            if (ip_obj.is_loopback or 
-                                ip_obj.is_multicast or 
-                                ip_obj.is_reserved or
-                                ip_obj.is_link_local):
-                                continue
-                            
-                            # Skip RFC 1918 private addresses
-                            if ip_obj.is_private:
-                                continue
-                            
-                            # Skip if IP is in any configured LAN subnet
-                            is_lan_ip = False
-                            for network in lan_networks:
-                                try:
-                                    if ip_obj in network:
-                                        is_lan_ip = True
-                                        break
-                                except ValueError:
-                                    continue
-                            
-                            if not is_lan_ip:
-                                external_ips.add(ip)
-                                parsed_entries += 1
-                                
-                        except ValueError:
-                            # Invalid IP address
+                    try:
+                        ip_obj = ipaddress.ip_address(ip)
+                        
+                        # Skip localhost, multicast, reserved ranges
+                        if (ip_obj.is_loopback or 
+                            ip_obj.is_multicast or 
+                            ip_obj.is_reserved or
+                            ip_obj.is_link_local):
                             continue
+                        
+                        # Skip RFC 1918 private addresses
+                        if ip_obj.is_private:
+                            continue
+                        
+                        # Skip if IP is in any configured LAN subnet
+                        is_lan_ip = False
+                        for network in lan_networks:
+                            try:
+                                if ip_obj in network:
+                                    is_lan_ip = True
+                                    break
+                            except ValueError:
+                                continue
+                        
+                        if not is_lan_ip:
+                            external_ips.add(ip)
+                            parsed_entries += 1
                             
+                    except ValueError:
+                        # Invalid IP address
+                        continue
+                        
                 except Exception as e:
                     # Skip malformed lines
                     continue
@@ -366,10 +402,10 @@ def parse_log_for_ips(config):
         
         # Log sample of found IPs for debugging
         if external_ips:
-            sample_ips = sorted(list(external_ips))[:10]  # Show first 10 sorted
+            sample_ips = sorted(list(external_ips))[:10]
             log_message(f"Sample external IPs found: {', '.join(sample_ips)}")
         else:
-            log_message("No external IPs found - check configuration settings")
+            log_message("No external IPs found - check log file and field positions")
         
     except Exception as e:
         log_message(f"Error reading log file: {str(e)}")
