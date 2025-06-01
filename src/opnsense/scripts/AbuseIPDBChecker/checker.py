@@ -762,11 +762,13 @@ def test_ip(ip_address):
         abuse_score = report.get('abuseConfidenceScore', 0)
         is_threat = abuse_score >= config['abuse_score_threshold']
         
+        log_message(f"IP {ip_address}: Score={abuse_score}, Threshold={config['abuse_score_threshold']}, IsThreat={is_threat}")
+        
         # Update daily checks count
         daily_checks = int(get_db_stats(conn, 'daily_checks') or '0')
         update_db_stats(conn, 'daily_checks', str(daily_checks + 1))
         
-        # Update or insert into checked_ips
+        # Update or insert into checked_ips (ALWAYS update last_checked)
         c.execute('SELECT * FROM checked_ips WHERE ip = ?', (ip_address,))
         existing = c.fetchone()
         
@@ -775,15 +777,17 @@ def test_ip(ip_address):
                 'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, is_threat = ? WHERE ip = ?',
                 (check_date, 1 if is_threat else 0, ip_address)
             )
+            log_message(f"Updated checked_ips for {ip_address}: last_checked={check_date}")
         else:
             c.execute(
                 'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, is_threat) VALUES (?, ?, ?, ?, ?)',
                 (ip_address, check_date, check_date, 1, 1 if is_threat else 0)
             )
+            log_message(f"Inserted into checked_ips for {ip_address}: last_checked={check_date}")
         
-        # If it's a threat, update or insert into threats table
+        # Handle threats table - ALWAYS update if IP is a threat
         if is_threat:
-            log_message(f"Malicious IP found: {ip_address} (Score: {abuse_score})")
+            log_message(f"Processing threat: {ip_address} (Score: {abuse_score})")
             
             # Get categories if available
             categories = ''
@@ -791,19 +795,24 @@ def test_ip(ip_address):
                 if 'categories' in report['reports'][0]:
                     categories = ','.join(str(cat) for cat in report['reports'][0]['categories'])
             
+            # Check if threat already exists
             c.execute('SELECT * FROM threats WHERE ip = ?', (ip_address,))
-            if c.fetchone():
+            existing_threat = c.fetchone()
+            
+            if existing_threat:
                 c.execute(
                     'UPDATE threats SET abuse_score = ?, reports = ?, last_seen = ?, categories = ?, country = ? WHERE ip = ?',
-                    (abuse_score, report.get('totalReports', 0), report.get('lastReportedAt', ''), 
+                    (abuse_score, report.get('totalReports', 0), check_date, 
                      categories, report.get('countryCode', ''), ip_address)
                 )
+                log_message(f"Updated threats table for {ip_address}: last_seen={check_date}")
             else:
                 c.execute(
                     'INSERT INTO threats (ip, abuse_score, reports, last_seen, categories, country) VALUES (?, ?, ?, ?, ?, ?)',
-                    (ip_address, abuse_score, report.get('totalReports', 0), report.get('lastReportedAt', ''), 
+                    (ip_address, abuse_score, report.get('totalReports', 0), check_date, 
                      categories, report.get('countryCode', ''))
                 )
+                log_message(f"Inserted into threats table for {ip_address}: last_seen={check_date}")
             
             # Send email notification if enabled
             try:
@@ -812,6 +821,10 @@ def test_ip(ip_address):
                 log_message(f"Failed to send email notification: {str(e)}")
         else:
             log_message(f"Clean IP tested: {ip_address} (Score: {abuse_score})")
+            # Remove from threats table if it exists but is no longer a threat
+            c.execute('DELETE FROM threats WHERE ip = ?', (ip_address,))
+            if c.rowcount > 0:
+                log_message(f"Removed {ip_address} from threats table (no longer a threat)")
         
         conn.commit()
         
@@ -835,14 +848,12 @@ def test_ip(ip_address):
             "last_reported": str(report.get("lastReportedAt", "Never"))
         }
         
-        # Ensure clean JSON output
-        log_message(f"Test completed for {ip_address}: {'Threat' if is_threat else 'Clean'} (Score: {abuse_score})")
-        
         # Convert any None values to empty strings
         for key, value in result.items():
             if value is None:
                 result[key] = ""
                 
+        log_message(f"Test completed for {ip_address}: {'Threat' if is_threat else 'Clean'} (Score: {abuse_score})")
         return result
         
     except Exception as e:
