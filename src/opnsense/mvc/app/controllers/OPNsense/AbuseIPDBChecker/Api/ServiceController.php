@@ -107,22 +107,7 @@ class ServiceController extends ApiMutableServiceControllerBase
      */
     public function testipAction()
     {
-        if (!$this->request->isPost()) {
-            return ["status" => "failed", "message" => "Method not allowed"];
-        }
-        
-        // Get the raw POST data first
-        $rawData = $this->request->getRawBody();
-        $postData = json_decode($rawData, true);
-        
-        // Try multiple ways to get the IP
-        $ip = '';
-        if (isset($postData['ip'])) {
-            $ip = $postData['ip'];
-        } elseif ($this->request->hasPost('ip')) {
-            $ip = $this->request->getPost('ip', 'string', '');
-        }
-        
+        $ip = $this->request->getPost('ip', 'string', '');
         if (empty($ip)) {
             return ["status" => "failed", "message" => "IP address is required"];
         }
@@ -135,14 +120,45 @@ class ServiceController extends ApiMutableServiceControllerBase
         // Ensure directories exist
         $this->ensureDirectories();
         
-        $backend = new Backend();
-        $response = $backend->configdRun("abuseipdbchecker testip {$ip}");
-        $bckresult = json_decode(trim($response), true);
+        // Log the command for debugging
+        $command = "abuseipdbchecker testip {$ip}";
+        syslog(LOG_NOTICE, "AbuseIPDBChecker: Executing command: {$command}");
         
+        $backend = new Backend();
+        $response = $backend->configdRun($command);
+        
+        // Debug: Log the raw response
+        syslog(LOG_NOTICE, "AbuseIPDBChecker: Raw response: " . substr($response, 0, 200));
+        
+        // Clean the response more carefully
+        $response = trim($response);
+        
+        // Try to decode JSON
+        $bckresult = json_decode($response, true);
         if ($bckresult !== null) {
+            syslog(LOG_NOTICE, "AbuseIPDBChecker: Successfully parsed JSON response");
             return $bckresult;
         }
         
+        // If JSON decode failed, try to execute directly
+        syslog(LOG_ERR, "AbuseIPDBChecker: JSON decode failed, trying direct execution");
+        $scriptPath = "/usr/local/opnsense/scripts/OPNsense/AbuseIPDBChecker/checker.py";
+        $output = [];
+        $returnCode = 0;
+        
+        exec("python3 {$scriptPath} testip {$ip} 2>&1", $output, $returnCode);
+        
+        if ($returnCode === 0 && !empty($output)) {
+            // Get the last line as it's likely the JSON output
+            $jsonOutput = end($output);
+            $bckresult = json_decode($jsonOutput, true);
+            if ($bckresult !== null) {
+                syslog(LOG_NOTICE, "AbuseIPDBChecker: Direct execution successful");
+                return $bckresult;
+            }
+        }
+        
+        // If all else fails, create a default response that indicates an error
         return [
             "status" => "error",
             "message" => "Could not parse response from backend. Check logs for details.",
