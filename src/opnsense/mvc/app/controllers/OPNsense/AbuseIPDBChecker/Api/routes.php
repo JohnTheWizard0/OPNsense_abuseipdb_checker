@@ -15,6 +15,9 @@ $router->addRoute('/abuseipdbchecker/service/logs', 'OPNsense\AbuseIPDBChecker\A
 $router->addRoute('/abuseipdbchecker/service/testip', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'testipAction');
 $router->addRoute('/abuseipdbchecker/service/listips', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'listipsAction');
 $router->addRoute('/abuseipdbchecker/service/allips', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'allipsAction');
+$router->addRoute('/abuseipdbchecker/service/updatealias', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'updatealiasAction');
+$router->addRoute('/abuseipdbchecker/service/exportthreats', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'exportthreatsAction');
+$router->addRoute('/abuseipdbchecker/service/testalias', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'testaliasAction');
 
 // Settings endpoints
 $router->addRoute('/abuseipdbchecker/settings/get', 'OPNsense\AbuseIPDBChecker\Api\SettingsController', 'getAction');

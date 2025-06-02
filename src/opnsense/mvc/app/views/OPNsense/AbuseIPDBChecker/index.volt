@@ -93,7 +93,8 @@
             'frm_general': "/api/abuseipdbchecker/settings/get",
             'frm_network': "/api/abuseipdbchecker/settings/get",
             'frm_api': "/api/abuseipdbchecker/settings/get",
-            'frm_email': "/api/abuseipdbchecker/settings/get"
+            'frm_email': "/api/abuseipdbchecker/settings/get",
+            'frm_alias': "/api/abuseipdbchecker/settings/get"
         };
         mapDataToFormUI(data_get_map).done(function() {
             formatTokenizersUI();
@@ -115,10 +116,9 @@
             };
             
             // Extract data from each form and merge into one object
-            ["general", "network", "api", "email"].forEach(function(section) {
+            ["general", "network", "api", "email", "alias"].forEach(function(section) {
                 var formData = getFormData("frm_" + section);
                 
-                // The key here is to ensure we're getting the right structure
                 if (formData && formData.abuseipdbchecker && formData.abuseipdbchecker[section]) {
                     data.abuseipdbchecker[section] = formData.abuseipdbchecker[section];
                 }
@@ -639,6 +639,7 @@
     <li><a data-toggle="tab" href="#network">{{ lang._('Network') }}</a></li>
     <li><a data-toggle="tab" href="#api">{{ lang._('API') }}</a></li>
     <li><a data-toggle="tab" href="#email">{{ lang._('Email') }}</a></li>
+    <li><a data-toggle="tab" href="#alias">{{ lang._('Alias') }}</a></li>
     <li><a data-toggle="tab" href="#testip">{{ lang._('Test IP') }}</a></li>
 </ul>
 
@@ -668,6 +669,12 @@
     <div id="email" class="tab-pane fade">
         <div class="content-box">
             {{ partial("layout_partials/base_form",['fields':emailForm,'id':'frm_email','parent':'abuseipdbchecker']) }}
+        </div>
+    </div>
+
+    <div id="alias" class="tab-pane fade">
+        <div class="content-box">
+            {{ partial("layout_partials/base_form",['fields':aliasForm,'id':'frm_alias','parent':'abuseipdbchecker']) }}
         </div>
     </div>
     

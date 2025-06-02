@@ -171,6 +171,43 @@ class ServiceController extends ApiMutableServiceControllerBase
         return ["status" => "failed", "message" => "Unable to retrieve all checked IPs"];
     }
 
+    public function updatealiasAction()
+    {
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $response = $backend->configdRun("abuseipdbchecker updatealias");
+            $bckresult = json_decode(trim($response), true);
+            if ($bckresult !== null) {
+                return $bckresult;
+            }
+        }
+        return ["status" => "failed", "message" => "Unable to update alias"];
+    }
+
+    public function exportthreatsAction()
+    {
+        $backend = new Backend();
+        $response = $backend->configdRun("abuseipdbchecker exportthreats");
+        $bckresult = json_decode(trim($response), true);
+        if ($bckresult !== null) {
+            return $bckresult;
+        }
+        return ["status" => "failed", "message" => "Unable to export threats"];
+    }
+
+    public function testaliasAction()
+    {
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $response = $backend->configdRun("abuseipdbchecker testalias");
+            $bckresult = json_decode(trim($response), true);
+            if ($bckresult !== null) {
+                return $bckresult;
+            }
+        }
+        return ["status" => "failed", "message" => "Unable to test alias"];
+    }
+
     protected function reconfigureForceRestart()
     {
         return 0;

@@ -1,0 +1,25 @@
+<form>
+    <field>
+        <label>Automatic Alias Integration</label>
+        <type>info</type>
+        <help>When the plugin is enabled, it automatically maintains an alias called "MaliciousIPs" containing detected threat IPs. This alias can be used in firewall rules, NAT rules, or other OPNsense features.</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.alias.Enabled</id>
+        <label>Enable Alias Updates</label>
+        <type>checkbox</type>
+        <help>Automatically update the "MaliciousIPs" alias when threats are detected</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.alias.IncludeSuspicious</id>
+        <label>Include Suspicious IPs</label>
+        <type>checkbox</type>
+        <help>Include suspicious IPs (40-69% confidence) in addition to malicious ones (≥70%)</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.alias.MaxRecentHosts</id>
+        <label>Maximum Recent Hosts</label>
+        <type>text</type>
+        <help>Include only the X most recent and dangerous hosts (sorted by detection time and abuse score)</help>
+    </field>
+</form>

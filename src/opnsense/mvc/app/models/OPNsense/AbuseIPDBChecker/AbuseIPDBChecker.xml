@@ -125,5 +125,24 @@
                 <description>Use TLS for SMTP</description>
             </UseTLS>
         </email>
+        <alias>
+            <Enabled type="BooleanField">
+                <default>1</default>
+                <Required>N</Required>
+                <description>Enable automatic alias updates (creates/updates MaliciousIPs alias)</description>
+            </Enabled>
+            <IncludeSuspicious type="BooleanField">
+                <default>0</default>
+                <Required>N</Required>
+                <description>Include suspicious IPs (40-69% score) in addition to malicious ones</description>
+            </IncludeSuspicious>
+            <MaxRecentHosts type="IntegerField">
+                <default>500</default>
+                <Required>N</Required>
+                <MinimumValue>10</MinimumValue>
+                <MaximumValue>2000</MaximumValue>
+                <description>Include only the X most recent and dangerous hosts</description>
+            </MaxRecentHosts>
+        </alias>
     </items>
 </model>

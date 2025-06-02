@@ -194,7 +194,10 @@ def read_config():
         'smtp_password': '',
         'from_address': '',
         'to_address': '',
-        'use_tls': True
+        'use_tls': True,
+        'alias_enabled': True,
+        'alias_include_suspicious': False,
+        'alias_max_recent_hosts': 500
     }
     
     # Make sure config directory exists
@@ -255,6 +258,15 @@ def read_config():
                     config['to_address'] = cp.get('email', 'ToAddress')
                 if cp.has_option('email', 'UseTLS'):
                     config['use_tls'] = cp.get('email', 'UseTLS') == '1'
+
+            if cp.has_section('alias'):
+                if cp.has_option('alias', 'Enabled'):
+                    config['alias_enabled'] = cp.get('alias', 'Enabled') == '1'
+                if cp.has_option('alias', 'IncludeSuspicious'):
+                    config['alias_include_suspicious'] = cp.get('alias', 'IncludeSuspicious') == '1'
+                if cp.has_option('alias', 'MaxRecentHosts'):
+                    config['alias_max_recent_hosts'] = int(cp.get('alias', 'MaxRecentHosts')) 
+
         except Exception as e:
             print(f"Error reading config: {str(e)}", file=sys.stderr)
     
@@ -1561,6 +1573,17 @@ def process_ip_batch(ip_batch, config):
         update_db_stats(conn, 'total_checks', str(total_checks))
         
         conn.commit()
+
+        if ips_checked > 0:
+            try:
+                if config['alias_enabled']:
+                    update_result = update_malicious_ips_alias()
+                    if update_result['status'] == 'ok':
+                        log_message(f"Auto-updated MaliciousIPs alias: {update_result.get('ip_count', 0)} IPs")
+                    else:
+                        log_message(f"Auto-update alias failed: {update_result['message']}")
+            except Exception as e:
+                log_message(f"Error auto-updating alias: {str(e)}")
         
         return {
             'status': 'ok',
@@ -1622,6 +1645,361 @@ def get_batch_status():
             'status': 'error',
             'message': f'Error getting batch status: {str(e)}'
         }
+def create_malicious_ips_alias():
+    """Create the MaliciousIPs alias using OPNsense's native system"""
+    try:
+        import subprocess
+        import tempfile
+        import json
+        
+        # Check if alias exists using OPNsense API
+        try:
+            result = subprocess.run([
+                'configctl', '-d', 'firewall', 'alias', 'list'
+            ], capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0 and 'MaliciousIPs' in result.stdout:
+                log_message("MaliciousIPs alias already exists")
+                return {'status': 'ok', 'message': 'MaliciousIPs alias already exists'}
+        except Exception as e:
+            log_message(f"Could not check existing aliases: {str(e)}")
+        
+        # Create alias using OPNsense's configd system
+        alias_data = {
+            'name': 'MaliciousIPs',
+            'type': 'host',
+            'description': 'Automatically maintained list of malicious IPs detected by AbuseIPDB Checker',
+            'content': '',
+            'enabled': '1'
+        }
+        
+        # Write alias data to temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(alias_data, f)
+            temp_file = f.name
+        
+        try:
+            # Use configctl to add the alias
+            result = subprocess.run([
+                'configctl', 'firewall', 'alias', 'add', temp_file
+            ], capture_output=True, text=True, timeout=15)
+            
+            if result.returncode == 0:
+                log_message("MaliciousIPs alias created via configctl")
+                return {'status': 'ok', 'message': 'MaliciousIPs alias created successfully'}
+            else:
+                log_message(f"configctl alias add failed: {result.stderr}")
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(temp_file)
+            except:
+                pass
+        
+        # Fallback to direct PHP approach
+        return create_alias_via_php()
+        
+    except Exception as e:
+        log_message(f"Error creating MaliciousIPs alias: {str(e)}")
+        return {'status': 'error', 'message': f'Error creating alias: {str(e)}'}
+
+def create_alias_via_php():
+    """Create alias using OPNsense PHP backend directly"""
+    try:
+        import subprocess
+        import tempfile
+        
+        # Create PHP script to add alias
+        php_script = '''<?php
+require_once '/usr/local/opnsense/mvc/app/controllers/OPNsense/Firewall/Api/AliasController.php';
+require_once '/usr/local/opnsense/mvc/app/models/OPNsense/Firewall/Alias.php';
+
+use OPNsense\\Firewall\\Alias;
+use OPNsense\\Core\\Config;
+
+try {
+    $mdl = new Alias();
+    
+    // Check if alias already exists
+    $aliases = $mdl->aliases->alias->getNodes();
+    foreach ($aliases as $alias) {
+        if (isset($alias['name']) && $alias['name']->__toString() == 'MaliciousIPs') {
+            echo "EXISTS";
+            exit(0);
+        }
+    }
+    
+    // Create new alias
+    $new_alias = $mdl->aliases->alias->Add();
+    $new_alias->enabled = "1";
+    $new_alias->name = "MaliciousIPs";
+    $new_alias->type = "host";
+    $new_alias->description = "Automatically maintained list of malicious IPs detected by AbuseIPDB Checker";
+    $new_alias->content = "";
+    
+    // Validate and save
+    $validation_messages = $mdl->performValidation();
+    if (count($validation_messages) == 0) {
+        $mdl->serializeToConfig();
+        Config::getInstance()->save();
+        echo "CREATED";
+    } else {
+        echo "VALIDATION_ERROR: " . implode(", ", $validation_messages);
+    }
+    
+} catch (Exception $e) {
+    echo "ERROR: " . $e->getMessage();
+}
+?>'''
+        
+        # Write PHP script to temp file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.php', delete=False) as f:
+            f.write(php_script)
+            php_file = f.name
+        
+        try:
+            # Execute PHP script
+            result = subprocess.run([
+                '/usr/local/bin/php', php_file
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                if output == "EXISTS":
+                    log_message("MaliciousIPs alias already exists (via PHP)")
+                    return {'status': 'ok', 'message': 'MaliciousIPs alias already exists'}
+                elif output == "CREATED":
+                    log_message("MaliciousIPs alias created successfully via PHP")
+                    # Reload firewall configuration
+                    subprocess.run(['configctl', 'filter', 'reload'], timeout=30)
+                    return {'status': 'ok', 'message': 'MaliciousIPs alias created successfully'}
+                else:
+                    log_message(f"PHP script output: {output}")
+                    return {'status': 'error', 'message': f'PHP execution failed: {output}'}
+            else:
+                log_message(f"PHP script failed: {result.stderr}")
+                return {'status': 'error', 'message': f'PHP execution error: {result.stderr}'}
+                
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(php_file)
+            except:
+                pass
+        
+    except Exception as e:
+        log_message(f"Error in PHP alias creation: {str(e)}")
+        return {'status': 'error', 'message': f'PHP alias creation failed: {str(e)}'}
+
+def update_alias_content(alias_name, ip_list):
+    """Update alias content using OPNsense PHP backend"""
+    try:
+        import subprocess
+        import tempfile
+        
+        # Create PHP script to update alias
+        ip_content = '\\n'.join(ip_list) if ip_list else ''
+        
+        php_script = f'''<?php
+require_once '/usr/local/opnsense/mvc/app/models/OPNsense/Firewall/Alias.php';
+require_once '/usr/local/opnsense/mvc/app/controllers/OPNsense/Firewall/Api/AliasController.php';
+
+use OPNsense\\Firewall\\Alias;
+use OPNsense\\Core\\Config;
+
+try {{
+    $mdl = new Alias();
+    $alias_name = "{alias_name}";
+    $new_content = "{ip_content}";
+    
+    // Find the alias
+    $aliases = $mdl->aliases->alias->getNodes();
+    $found = false;
+    
+    foreach ($aliases as $uuid => $alias) {{
+        if (isset($alias['name']) && $alias['name']->__toString() == $alias_name) {{
+            // Update content
+            $alias['content'] = $new_content;
+            $found = true;
+            break;
+        }}
+    }}
+    
+    if (!$found) {{
+        echo "ALIAS_NOT_FOUND";
+        exit(1);
+    }}
+    
+    // Save changes
+    $validation_messages = $mdl->performValidation();
+    if (count($validation_messages) == 0) {{
+        $mdl->serializeToConfig();
+        Config::getInstance()->save();
+        echo "UPDATED";
+    }} else {{
+        echo "VALIDATION_ERROR: " . implode(", ", $validation_messages);
+    }}
+    
+}} catch (Exception $e) {{
+    echo "ERROR: " . $e->getMessage();
+}}
+?>'''
+        
+        # Write and execute PHP script
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.php', delete=False) as f:
+            f.write(php_script)
+            php_file = f.name
+        
+        try:
+            result = subprocess.run([
+                '/usr/local/bin/php', php_file
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                if output == "UPDATED":
+                    # Reload firewall
+                    subprocess.run(['configctl', 'filter', 'reload'], timeout=30)
+                    return {
+                        'status': 'ok',
+                        'message': f'Alias {alias_name} updated with {len(ip_list)} IPs',
+                        'ip_count': len(ip_list)
+                    }
+                else:
+                    return {'status': 'error', 'message': f'Update failed: {output}'}
+            else:
+                return {'status': 'error', 'message': f'PHP error: {result.stderr}'}
+                
+        finally:
+            try:
+                os.unlink(php_file)
+            except:
+                pass
+        
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error updating alias: {str(e)}'}
+
+def update_malicious_ips_alias():
+    """Update the MaliciousIPs alias with current threat data"""
+    try:
+        config = read_config()
+        
+        if not config['alias_enabled']:
+            return {'status': 'disabled', 'message': 'Alias integration is disabled'}
+        
+        # Get threat IPs from database
+        if not os.path.exists(DB_FILE):
+            return {'status': 'error', 'message': 'Database not initialized'}
+        
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        # Build query based on configuration
+        min_threat_level = 1 if config['alias_include_suspicious'] else 2
+        max_hosts = config['alias_max_recent_hosts']
+        
+        # Get most recent and dangerous threats
+        c.execute('''
+        SELECT 
+            t.ip, 
+            t.abuse_score, 
+            t.last_seen,
+            ci.last_checked
+        FROM threats t
+        JOIN checked_ips ci ON t.ip = ci.ip
+        WHERE ci.threat_level >= ?
+        ORDER BY 
+            t.abuse_score DESC,
+            ci.last_checked DESC
+        LIMIT ?
+        ''', (min_threat_level, max_hosts))
+        
+        threat_ips = []
+        for row in c.fetchall():
+            threat_ips.append(row['ip'])
+        
+        conn.close()
+        
+        if not threat_ips:
+            log_message("No threats found for alias update")
+            # Still update alias to empty it
+            threat_ips = []
+        
+        # Update alias content
+        result = update_alias_content('MaliciousIPs', threat_ips)
+        
+        if result['status'] == 'ok':
+            log_message(f"MaliciousIPs alias updated with {len(threat_ips)} IPs")
+        
+        return result
+        
+    except Exception as e:
+        log_message(f"Error updating MaliciousIPs alias: {str(e)}")
+        return {'status': 'error', 'message': f'Error updating alias: {str(e)}'}
+
+def export_threats_for_alias():
+    """Export current threats in a format suitable for alias import"""
+    try:
+        config = read_config()
+        
+        if not os.path.exists(DB_FILE):
+            return {'status': 'error', 'message': 'Database not initialized'}
+        
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        # Get configuration
+        min_threat_level = 1 if config['alias_include_suspicious'] else 2
+        max_hosts = config['alias_max_recent_hosts']
+        
+        # Get threats
+        c.execute('''
+        SELECT 
+            t.ip, 
+            t.abuse_score, 
+            t.reports,
+            t.last_seen,
+            ci.last_checked,
+            ci.threat_level
+        FROM threats t
+        JOIN checked_ips ci ON t.ip = ci.ip
+        WHERE ci.threat_level >= ?
+        ORDER BY 
+            t.abuse_score DESC,
+            ci.last_checked DESC
+        LIMIT ?
+        ''', (min_threat_level, max_hosts))
+        
+        threats = []
+        ip_list = []
+        
+        for row in c.fetchall():
+            threat_info = {
+                'ip': row['ip'],
+                'abuse_score': row['abuse_score'],
+                'reports': row['reports'],
+                'last_seen': row['last_seen'],
+                'last_checked': row['last_checked'],
+                'threat_level': row['threat_level'],
+                'threat_text': get_threat_level_text(row['threat_level'])
+            }
+            threats.append(threat_info)
+            ip_list.append(row['ip'])
+        
+        conn.close()
+        
+        return {
+            'status': 'ok',
+            'message': f'Exported {len(threats)} threats for alias',
+            'threats': threats,
+            'ip_list': ip_list,
+            'alias_content': '\n'.join(ip_list)
+        }
+        
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error exporting threats: {str(e)}'}
 
 def main():
     """Main entry point"""
@@ -1639,7 +2017,7 @@ def main():
         
         # Parse command line arguments
         parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
-        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'listips', 'debuglog', 'connections', 'daemon', 'batchstatus', 'allips'],
+        parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'listips', 'debuglog', 'connections', 'daemon', 'batchstatus', 'allips', 'createalias', 'updatealias', 'exportthreats'],
                 help='Operation mode')
         parser.add_argument('ip', nargs='?', help='IP address to test (only for testip mode)')
         
@@ -1691,6 +2069,15 @@ def main():
         elif args.mode == 'allips':
             log_message("Retrieving all checked IPs")
             result = get_all_checked_ips()
+        elif args.mode == 'createalias':
+            log_message("Creating MaliciousIPs alias")
+            result = create_malicious_ips_alias()
+        elif args.mode == 'updatealias':
+            log_message("Updating MaliciousIPs alias")
+            result = update_malicious_ips_alias()
+        elif args.mode == 'exportthreats':
+            log_message("Exporting threats for alias")
+            result = export_threats_for_alias()
         elif args.mode == 'daemon':
             # Don't return JSON for daemon mode, just run
             log_message("Starting daemon mode")
