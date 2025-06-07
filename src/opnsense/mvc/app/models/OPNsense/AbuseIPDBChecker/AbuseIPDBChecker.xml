@@ -83,7 +83,7 @@
                 <description>Max age in days for IP reports</description>
             </MaxAge>
             <DailyCheckLimit type="IntegerField">
-                <default>100</default>
+                <default>1000</default>
                 <Required>N</Required>
                 <MinimumValue>1</MinimumValue>
                 <MaximumValue>1000</MaximumValue>
@@ -105,7 +105,7 @@
                 <default>500</default>
                 <Required>N</Required>
                 <MinimumValue>10</MinimumValue>
-                <MaximumValue>2000</MaximumValue>
+                <MaximumValue>10000</MaximumValue>
                 <description>Include only the X most recent and dangerous hosts</description>
             </MaxRecentHosts>
         </alias>

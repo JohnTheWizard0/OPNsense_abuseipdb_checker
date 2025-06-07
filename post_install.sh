@@ -25,9 +25,7 @@ mkdir -p /usr/local/etc/abuseipdbchecker
 chmod 755 /usr/local/etc/abuseipdbchecker
 
 # Make scripts executable
-chmod 755 /usr/local/opnsense/scripts/AbuseIPDBChecker/checker.py
-chmod 755 /usr/local/opnsense/scripts/AbuseIPDBChecker/setup_database.py
-chmod 755 /usr/local/opnsense/scripts/AbuseIPDBChecker/manage_alias.py
+chmod -R 755 /usr/local/opnsense/scripts/AbuseIPDBChecker/*
 
 # Create symlink for OPNsense script path
 mkdir -p /usr/local/opnsense/scripts/OPNsense

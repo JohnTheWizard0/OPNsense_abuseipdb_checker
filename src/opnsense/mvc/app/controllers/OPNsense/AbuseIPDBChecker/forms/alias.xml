@@ -14,7 +14,7 @@
         <id>abuseipdbchecker.alias.IncludeSuspicious</id>
         <label>Include Suspicious IPs</label>
         <type>checkbox</type>
-        <help>Include suspicious IPs (40-69% confidence) in addition to malicious ones (≥70%)</help>
+        <help>Include suspicious IPs in addition to malicious ones</help>
     </field>
     <field>
         <id>abuseipdbchecker.alias.MaxRecentHosts</id>

@@ -249,7 +249,7 @@ def create_alias(config, threat_ips):
                 "name": "MaliciousIPs",
                 "type": "host",
                 "content": "\n".join(threat_ips) if threat_ips else "127.0.0.1",
-                "description": f"AbuseIPDB malicious IPs (Updated: {format_timestamp()}) - {len(threat_ips)} IPs"
+                "description": f"AbuseIPDB malicious IPs"
             }
         }
         
