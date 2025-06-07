@@ -11,7 +11,7 @@ import json
 import sqlite3
 import requests
 import urllib3
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from configparser import ConfigParser
 
 # Disable SSL warnings for self-signed certificates
@@ -23,6 +23,76 @@ DB_FILE = os.path.join(DB_DIR, 'abuseipdb.db')
 CONFIG_FILE = '/usr/local/etc/abuseipdbchecker/abuseipdbchecker.conf'
 LOG_DIR = '/var/log/abuseipdbchecker'
 LOG_FILE = os.path.join(LOG_DIR, 'abuseipdb.log')
+
+def get_system_timezone():
+    """Get the system's local timezone safely"""
+    try:
+        # Try to get system timezone using datetime
+        local_dt = datetime.now().astimezone()
+        return local_dt.tzinfo
+    except Exception:
+        try:
+            # Fallback: use time module
+            import time
+            if time.daylight:
+                # DST is in effect, use the DST offset
+                offset_seconds = -time.altzone
+            else:
+                # Standard time
+                offset_seconds = -time.timezone
+            
+            offset_hours = offset_seconds // 3600
+            offset_minutes = (abs(offset_seconds) % 3600) // 60
+            
+            return timezone(timedelta(hours=offset_hours, minutes=offset_minutes))
+        except Exception:
+            # Final fallback to UTC
+            return timezone.utc
+
+# Get system timezone on module load
+LOCAL_TZ = get_system_timezone()
+
+def get_local_time():
+    """Get current time in system's local timezone"""
+    return datetime.now(LOCAL_TZ)
+
+def format_timestamp(dt=None):
+    """Format timestamp in local timezone"""
+    if dt is None:
+        dt = get_local_time()
+    elif isinstance(dt, str):
+        try:
+            if dt.endswith('Z'):
+                dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+            elif '+' in dt or dt.count('-') > 2:
+                dt = datetime.fromisoformat(dt)
+            else:
+                dt = datetime.fromisoformat(dt)
+                dt = dt.replace(tzinfo=LOCAL_TZ)
+            dt = dt.astimezone(LOCAL_TZ)
+        except Exception:
+            return dt
+    elif dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc).astimezone(LOCAL_TZ)
+    elif dt.tzinfo != LOCAL_TZ:
+        dt = dt.astimezone(LOCAL_TZ)
+    
+    return dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+
+# Update the log_message function to use proper timezone
+def log_message(message):
+    """Log a message to the log file with proper timezone"""
+    try:
+        if not os.path.exists(LOG_DIR):
+            os.makedirs(LOG_DIR, mode=0o755)
+        
+        timestamp = format_timestamp()  # Use the new timezone-aware function
+        with open(LOG_FILE, 'a') as f:
+            f.write(f"[{timestamp}] ALIAS-API: {message}\n")
+        
+        os.chmod(LOG_FILE, 0o666)
+    except Exception as e:
+        print(f"Error writing to log: {str(e)}", file=sys.stderr)
 
 def log_message(message):
     """Log a message to the log file"""
@@ -179,7 +249,7 @@ def create_alias(config, threat_ips):
                 "name": "MaliciousIPs",
                 "type": "host",
                 "content": "\n".join(threat_ips) if threat_ips else "127.0.0.1",
-                "description": f"AbuseIPDB malicious IPs (auto-managed) - {len(threat_ips)} IPs"
+                "description": f"AbuseIPDB malicious IPs (Updated: {format_timestamp()}) - {len(threat_ips)} IPs"
             }
         }
         
@@ -227,7 +297,7 @@ def update_alias(config, threat_ips):
                 "name": "MaliciousIPs",
                 "type": "host", 
                 "content": "\n".join(threat_ips) if threat_ips else "127.0.0.1",
-                "description": f"AbuseIPDB malicious IPs (Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) - {len(threat_ips)} IPs"
+                "description": f"AbuseIPDB malicious IPs (Updated: {format_timestamp()}) - {len(threat_ips)} IPs"
             }
         }
         

@@ -27,7 +27,6 @@ chmod 755 /usr/local/etc/abuseipdbchecker
 # Make scripts executable
 chmod 755 /usr/local/opnsense/scripts/AbuseIPDBChecker/checker.py
 chmod 755 /usr/local/opnsense/scripts/AbuseIPDBChecker/setup_database.py
-# Make alias management script executable
 chmod 755 /usr/local/opnsense/scripts/AbuseIPDBChecker/manage_alias.py
 
 # Create symlink for OPNsense script path

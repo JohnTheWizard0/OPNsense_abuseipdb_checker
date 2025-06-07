@@ -37,7 +37,6 @@ try:
     import sqlite3
     import ipaddress
     import subprocess
-    import re
     import smtplib
     import argparse
     from datetime import datetime, timedelta, timezone
@@ -69,11 +68,39 @@ MODE_CHECK = 'check'
 MODE_STATS = 'stats'
 MODE_THREATS = 'threats'
 
-# Timezone configuration - UTC+2 (Central European Time)
-LOCAL_TZ = timezone(timedelta(hours=2))
+# Replace the timezone configuration section in checker.py (around lines 57-85)
+
+def get_system_timezone():
+    """Get the system's local timezone safely"""
+    try:
+        # Try to get system timezone using datetime
+        local_dt = datetime.now().astimezone()
+        return local_dt.tzinfo
+    except Exception:
+        try:
+            # Fallback: use time module
+            import time
+            if time.daylight:
+                # DST is in effect, use the DST offset
+                offset_seconds = -time.altzone
+            else:
+                # Standard time
+                offset_seconds = -time.timezone
+            
+            offset_hours = offset_seconds // 3600
+            offset_minutes = (abs(offset_seconds) % 3600) // 60
+            
+            return timezone(timedelta(hours=offset_hours, minutes=offset_minutes))
+        except Exception:
+            # Final fallback to UTC
+            log_message("Warning: Could not detect system timezone, using UTC")
+            return timezone.utc
+
+# Get system timezone on module load
+LOCAL_TZ = get_system_timezone()
 
 def get_local_time():
-    """Get current time in local timezone (UTC+2)"""
+    """Get current time in system's local timezone"""
     return datetime.now(LOCAL_TZ)
 
 def format_timestamp(dt=None):
@@ -83,19 +110,46 @@ def format_timestamp(dt=None):
     elif isinstance(dt, str):
         # Parse existing timestamp and convert to local timezone
         try:
-            dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+            # Handle various timestamp formats
+            if dt.endswith('Z'):
+                dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+            elif '+' in dt or dt.count('-') > 2:  # Has timezone info
+                dt = datetime.fromisoformat(dt)
+            else:
+                # Assume it's a local timestamp without timezone
+                dt = datetime.fromisoformat(dt)
+                dt = dt.replace(tzinfo=LOCAL_TZ)
+            
             dt = dt.astimezone(LOCAL_TZ)
-        except:
+        except Exception as e:
+            log_message(f"Warning: Could not parse timestamp '{dt}', using as-is: {str(e)}")
             return dt  # Return as-is if parsing fails
     elif dt.tzinfo is None:
         # Assume UTC if no timezone info
         dt = dt.replace(tzinfo=timezone.utc).astimezone(LOCAL_TZ)
+    elif dt.tzinfo != LOCAL_TZ:
+        # Convert to local timezone
+        dt = dt.astimezone(LOCAL_TZ)
     
     return dt.strftime('%Y-%m-%d %H:%M:%S %Z')
 
 def get_db_timestamp():
-    """Get timestamp for database storage"""
+    """Get timestamp for database storage (always in local timezone)"""
     return get_local_time().strftime('%Y-%m-%d %H:%M:%S')
+
+def log_timezone_info():
+    """Log timezone information for debugging"""
+    try:
+        import time
+        local_time = get_local_time()
+        log_message(f"System timezone: {LOCAL_TZ}")
+        log_message(f"Current local time: {format_timestamp()}")
+        log_message(f"UTC offset: {local_time.strftime('%z')}")
+        log_message(f"Timezone name: {local_time.strftime('%Z')}")
+        if hasattr(time, 'tzname'):
+            log_message(f"System tzname: {time.tzname}")
+    except Exception as e:
+        log_message(f"Error logging timezone info: {str(e)}")
 
 def ensure_directories():
     """Ensure all required directories exist with correct permissions"""
@@ -1714,7 +1768,8 @@ def main():
         
         # Now that directories exist, we can log properly
         log_message("Script started successfully")
-        
+        log_timezone_info()
+
         # Parse command line arguments
         parser = argparse.ArgumentParser(description='AbuseIPDB Checker')
         parser.add_argument('mode', choices=[MODE_CHECK, MODE_STATS, MODE_THREATS, 'logs', 'testip', 'listips', 'debuglog', 'connections', 'daemon', 'batchstatus', 'allips', 'createalias', 'updatealias', 'exportthreats'],
