@@ -11,7 +11,6 @@ class IndexController extends BaseIndexController
         $this->view->generalForm = $this->getForm("general");
         $this->view->networkForm = $this->getForm("network");
         $this->view->apiForm = $this->getForm("api");
-        $this->view->emailForm = $this->getForm("email");
         $this->view->aliasForm = $this->getForm("alias");
     }
 }

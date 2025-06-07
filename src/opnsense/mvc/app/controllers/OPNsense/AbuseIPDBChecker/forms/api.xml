@@ -17,4 +17,10 @@
         <type>text</type>
         <help>Maximum age in days for IP reports</help>
     </field>
+    <field>
+        <id>abuseipdbchecker.api.DailyCheckLimit</id>
+        <label>Daily Check Limit</label>
+        <type>text</type>
+        <help>Maximum number of IPs to check per day</help>
+    </field>
 </form>

@@ -40,9 +40,7 @@ try:
     import re
     import smtplib
     import argparse
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     from configparser import ConfigParser
     
     # Check for requests package
@@ -70,6 +68,34 @@ LOG_FILE = os.path.join(LOG_DIR, 'abuseipdb.log')
 MODE_CHECK = 'check'
 MODE_STATS = 'stats'
 MODE_THREATS = 'threats'
+
+# Timezone configuration - UTC+2 (Central European Time)
+LOCAL_TZ = timezone(timedelta(hours=2))
+
+def get_local_time():
+    """Get current time in local timezone (UTC+2)"""
+    return datetime.now(LOCAL_TZ)
+
+def format_timestamp(dt=None):
+    """Format timestamp in local timezone"""
+    if dt is None:
+        dt = get_local_time()
+    elif isinstance(dt, str):
+        # Parse existing timestamp and convert to local timezone
+        try:
+            dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+            dt = dt.astimezone(LOCAL_TZ)
+        except:
+            return dt  # Return as-is if parsing fails
+    elif dt.tzinfo is None:
+        # Assume UTC if no timezone info
+        dt = dt.replace(tzinfo=timezone.utc).astimezone(LOCAL_TZ)
+    
+    return dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+
+def get_db_timestamp():
+    """Get timestamp for database storage"""
+    return get_local_time().strftime('%Y-%m-%d %H:%M:%S')
 
 def ensure_directories():
     """Ensure all required directories exist with correct permissions"""
@@ -106,16 +132,14 @@ def system_log(message, priority=5):
         print(f"Error writing to syslog: {str(e)}", file=sys.stderr)
 
 def log_message(message):
-    """Log a message to the log file"""
+    """Log a message to the log file with proper timezone"""
     log_dir = '/var/log/abuseipdbchecker'
     log_file = os.path.join(log_dir, 'abuseipdb.log')
     
     try:
-        # Create log directory if it doesn't exist
         if not os.path.exists(log_dir):
             try:
                 os.makedirs(log_dir, mode=0o755)
-                # Try to set ownership to www user (web server)
                 try:
                     import subprocess
                     subprocess.run(['chown', '-R', 'www:www', log_dir], check=False)
@@ -125,19 +149,16 @@ def log_message(message):
                 print(f"Error creating log directory: {str(e)}", file=sys.stderr)
                 return
         
-        # Check if this is a startup message that should be suppressed
         if "Script started successfully" in message and os.path.exists(log_file):
-            # Skip logging repetitive startup messages
             return
             
-        # Append message to log file
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # Use local timezone for logging
+        timestamp = format_timestamp()
         with open(log_file, 'a') as f:
             f.write(f"[{timestamp}] {message}\n")
         
-        # Make sure log file has permissive permissions
         try:
-            os.chmod(log_file, 0o666)  # Make world-readable and writable
+            os.chmod(log_file, 0o666)
             try:
                 import subprocess
                 subprocess.run(['chown', 'www:www', log_file], check=False)
@@ -148,7 +169,6 @@ def log_message(message):
     
     except Exception as e:
         print(f"Error writing to log: {str(e)}", file=sys.stderr)
-        # Try to write to system log as fallback
         try:
             import syslog
             syslog.openlog("abuseipdbchecker")
@@ -156,15 +176,23 @@ def log_message(message):
             syslog.syslog(syslog.LOG_NOTICE, f"Original message: {message}")
             syslog.closelog()
         except Exception:
-            pass  # Last resort, if even syslog fails, just silently continue
+            pass
 
-def classify_threat_level(abuse_score):
-    """Classify threat level based on abuse score
-    Returns: 0 = Safe (<40%), 1 = Suspicious (40-69%), 2 = Malicious (≥70%)
+def classify_threat_level(abuse_score, config=None):
+    """Classify threat level based on abuse score and configuration
+    Returns: 0 = Safe, 1 = Suspicious, 2 = Malicious
     """
-    if abuse_score < 40:
+    if config is None:
+        # Use default thresholds if no config provided
+        suspicious_threshold = 40
+        malicious_threshold = 70
+    else:
+        suspicious_threshold = config.get('suspicious_threshold', 40)
+        malicious_threshold = config.get('malicious_threshold', 70)
+    
+    if abuse_score < suspicious_threshold:
         return 0  # Safe
-    elif abuse_score < 70:
+    elif abuse_score < malicious_threshold:
         return 1  # Suspicious
     else:
         return 2  # Malicious
@@ -180,22 +208,15 @@ def read_config():
         'enabled': False,
         'log_file': '/var/log/filter/latest.log',
         'check_frequency': 7,
-        'abuse_score_threshold': 80,
-        'daily_check_limit': 100,
+        'suspicious_threshold': 40,
+        'malicious_threshold': 70,
         'ignore_blocked_connections': True,
         'lan_subnets': ['192.168.0.0/16', '10.0.0.0/8', '172.16.0.0/12'],
         'ignore_protocols': ['icmp', 'igmp'],
         'api_key': '',
         'api_endpoint': 'https://api.abuseipdb.com/api/v2/check',
         'max_age': 90,
-        'email_enabled': False,
-        'smtp_server': '',
-        'smtp_port': 587,
-        'smtp_username': '',
-        'smtp_password': '',
-        'from_address': '',
-        'to_address': '',
-        'use_tls': True,
+        'daily_check_limit': 100,  # Now defaults here instead of from general section
         'alias_enabled': True,
         'alias_include_suspicious': False,
         'alias_max_recent_hosts': 500,
@@ -203,7 +224,6 @@ def read_config():
         'opnsense_api_secret': ''
     }
     
-    # Make sure config directory exists
     config_dir = os.path.dirname(CONFIG_FILE)
     if not os.path.exists(config_dir):
         try:
@@ -223,17 +243,16 @@ def read_config():
                     config['log_file'] = cp.get('general', 'LogFile')
                 if cp.has_option('general', 'CheckFrequency'):
                     config['check_frequency'] = int(cp.get('general', 'CheckFrequency'))
-                if cp.has_option('general', 'AbuseScoreThreshold'):
-                    config['abuse_score_threshold'] = int(cp.get('general', 'AbuseScoreThreshold'))
-                if cp.has_option('general', 'DailyCheckLimit'):
-                    config['daily_check_limit'] = int(cp.get('general', 'DailyCheckLimit'))
+                if cp.has_option('general', 'SuspiciousThreshold'):
+                    config['suspicious_threshold'] = int(cp.get('general', 'SuspiciousThreshold'))
+                if cp.has_option('general', 'MaliciousThreshold'):
+                    config['malicious_threshold'] = int(cp.get('general', 'MaliciousThreshold'))
                 if cp.has_option('general', 'IgnoreBlockedConnections'):
                     config['ignore_blocked_connections'] = cp.get('general', 'IgnoreBlockedConnections') == '1'
                 if cp.has_option('general', 'ApiKey'):
                     config['opnsense_api_key'] = cp.get('general', 'ApiKey')
                 if cp.has_option('general', 'ApiSecret'):
                     config['opnsense_api_secret'] = cp.get('general', 'ApiSecret')
-
             
             if cp.has_section('network'):
                 if cp.has_option('network', 'LanSubnets'):
@@ -248,24 +267,8 @@ def read_config():
                     config['api_endpoint'] = cp.get('api', 'Endpoint')
                 if cp.has_option('api', 'MaxAge'):
                     config['max_age'] = int(cp.get('api', 'MaxAge'))
-            
-            if cp.has_section('email'):
-                if cp.has_option('email', 'Enabled'):
-                    config['email_enabled'] = cp.get('email', 'Enabled') == '1'
-                if cp.has_option('email', 'SmtpServer'):
-                    config['smtp_server'] = cp.get('email', 'SmtpServer')
-                if cp.has_option('email', 'SmtpPort'):
-                    config['smtp_port'] = int(cp.get('email', 'SmtpPort'))
-                if cp.has_option('email', 'SmtpUsername'):
-                    config['smtp_username'] = cp.get('email', 'SmtpUsername')
-                if cp.has_option('email', 'SmtpPassword'):
-                    config['smtp_password'] = cp.get('email', 'SmtpPassword')
-                if cp.has_option('email', 'FromAddress'):
-                    config['from_address'] = cp.get('email', 'FromAddress')
-                if cp.has_option('email', 'ToAddress'):
-                    config['to_address'] = cp.get('email', 'ToAddress')
-                if cp.has_option('email', 'UseTLS'):
-                    config['use_tls'] = cp.get('email', 'UseTLS') == '1'
+                if cp.has_option('api', 'DailyCheckLimit'):
+                    config['daily_check_limit'] = int(cp.get('api', 'DailyCheckLimit'))
 
             if cp.has_section('alias'):
                 if cp.has_option('alias', 'Enabled'):
@@ -751,7 +754,7 @@ def reset_daily_checks_if_needed(conn):
     try:
         c = conn.cursor()
         last_reset = get_db_stats(conn, 'last_reset')
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = get_local_time().strftime('%Y-%m-%d')
         
         if last_reset != today:
             c.execute('UPDATE stats SET value = ? WHERE key = ?', ('0', 'daily_checks'))
@@ -765,7 +768,6 @@ def run_checker(config):
     if not config['enabled']:
         return {'status': 'disabled', 'message': 'AbuseIPDBChecker is disabled'}
     
-    # Make sure DB exists
     if not os.path.exists(DB_FILE):
         return {'status': 'error', 'message': 'Database not initialized. Please run setup_database.py first.'}
     
@@ -773,52 +775,43 @@ def run_checker(config):
     conn.row_factory = sqlite3.Row
     
     try:
-        # Reset daily checks if it's a new day
         reset_daily_checks_if_needed(conn)
         
-        # Get external IPs from log
         external_ips = parse_log_for_ips(config)
         
         if not external_ips:
-            update_db_stats(conn, 'last_check', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            update_db_stats(conn, 'last_check', get_db_timestamp())
             return {'status': 'ok', 'message': 'No external IPs found to check'}
         
-        # Get current stats
         daily_checks = int(get_db_stats(conn, 'daily_checks') or '0')
-        daily_limit = config['daily_check_limit']
+        daily_limit = config['daily_check_limit']  # Now from API section
         
         if daily_checks >= daily_limit:
             return {'status': 'limited', 'message': f'Daily API check limit reached ({daily_checks}/{daily_limit})'}
         
-        # Check each IP
         c = conn.cursor()
-        now = datetime.now()
-        check_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        now = get_local_time()
+        check_date = get_db_timestamp()
         
         threats_detected = 0
         ips_checked = 0
         
         for ip in external_ips:
-            # Check if we've reached the daily limit
             if daily_checks >= daily_limit:
                 break
             
-            # Check if this IP is already in the database
             c.execute('SELECT * FROM checked_ips WHERE ip = ?', (ip,))
             existing = c.fetchone()
             
-            # If IP exists and was checked recently, skip it
-            if existing and datetime.strptime(existing['last_checked'], '%Y-%m-%d %H:%M:%S') > (now - timedelta(days=config['check_frequency'])):
+            if existing and datetime.strptime(existing['last_checked'], '%Y-%m-%d %H:%M:%S') > (now.replace(tzinfo=None) - timedelta(days=config['check_frequency'])):
                 continue
             
-            # Check IP against AbuseIPDB
             report = check_ip_abuseipdb(ip, config)
             
             if report is not None:
                 abuse_score = report.get('abuseConfidenceScore', 0)
-                threat_level = classify_threat_level(abuse_score)
+                threat_level = classify_threat_level(abuse_score, config)
                 
-                # Update or insert into checked_ips
                 country = report.get('countryCode', 'Unknown')
                 
                 if existing:
@@ -832,7 +825,6 @@ def run_checker(config):
                         (ip, check_date, check_date, 1, threat_level, country)
                     )
                 
-                # If it's a threat, update or insert into threats table
                 if threat_level >= 1:
                     categories = ','.join(str(cat) for cat in report.get('reports', [{'categories': []}])[0].get('categories', []))
                     
@@ -840,28 +832,23 @@ def run_checker(config):
                     if c.fetchone():
                         c.execute(
                             'UPDATE threats SET abuse_score = ?, reports = ?, last_seen = ?, categories = ?, country = ? WHERE ip = ?',
-                            (abuse_score, report.get('totalReports', 0), report.get('lastReportedAt', ''), categories, report.get('countryCode', ''), ip)
+                            (abuse_score, report.get('totalReports', 0), check_date, categories, report.get('countryCode', ''), ip)
                         )
                     else:
                         c.execute(
                             'INSERT INTO threats (ip, abuse_score, reports, last_seen, categories, country) VALUES (?, ?, ?, ?, ?, ?)',
-                            (ip, abuse_score, report.get('totalReports', 0), report.get('lastReportedAt', ''), categories, report.get('countryCode', ''))
+                            (ip, abuse_score, report.get('totalReports', 0), check_date, categories, report.get('countryCode', ''))
                         )
                     
-                    # Send email notification
-                    send_email_notification(ip, report, config)
                     threats_detected += 1
                 else:
-                    # Remove from threats table if it's now safe
                     c.execute('DELETE FROM threats WHERE ip = ?', (ip,))
 
                 ips_checked += 1
                 daily_checks += 1
             
-            # Sleep briefly to avoid rate limiting
             time.sleep(0.5)
         
-        # Update stats
         update_db_stats(conn, 'last_check', check_date)
         update_db_stats(conn, 'daily_checks', str(daily_checks))
         total_checks = int(get_db_stats(conn, 'total_checks') or '0') + ips_checked
@@ -881,7 +868,6 @@ def run_checker(config):
     
     finally:
         conn.close()
-
 def get_statistics():
     """Get statistics from the database"""
     if not os.path.exists(DB_FILE):
@@ -1074,7 +1060,6 @@ def test_ip(ip_address):
     """Test a single IP against AbuseIPDB"""
     log_message(f"Starting test of IP: {ip_address}")
     
-    # Validate IP address format
     try:
         ipaddress.ip_address(ip_address)
     except ValueError:
@@ -1101,7 +1086,6 @@ def test_ip(ip_address):
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
         
-        # Check IP against AbuseIPDB
         log_message(f"Checking IP {ip_address} with AbuseIPDB API")
         
         try:
@@ -1117,17 +1101,15 @@ def test_ip(ip_address):
         log_message(f"API response received for {ip_address}")
         
         c = conn.cursor()
-        check_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        check_date = get_db_timestamp()
         abuse_score = report.get('abuseConfidenceScore', 0)
-        threat_level = classify_threat_level(abuse_score)
+        threat_level = classify_threat_level(abuse_score, config)
         
         log_message(f"IP {ip_address}: Score={abuse_score}, ThreatLevel={threat_level} ({get_threat_level_text(threat_level)})")
         
-        # Update daily checks count
         daily_checks = int(get_db_stats(conn, 'daily_checks') or '0')
         update_db_stats(conn, 'daily_checks', str(daily_checks + 1))
         
-        # Update or insert into checked_ips (ALWAYS update last_checked)
         c.execute('SELECT * FROM checked_ips WHERE ip = ?', (ip_address,))
         existing = c.fetchone()
         
@@ -1145,17 +1127,14 @@ def test_ip(ip_address):
             )
             log_message(f"Inserted into checked_ips for {ip_address}: last_checked={check_date}")
         
-        # Handle threats table - ALWAYS update if IP is suspicious or malicious
-        if threat_level >= 1:  # Suspicious or Malicious
+        if threat_level >= 1:
             log_message(f"Processing threat: {ip_address} (Score: {abuse_score})")
             
-            # Get categories if available
             categories = ''
             if 'reports' in report and report['reports'] and len(report['reports']) > 0:
                 if 'categories' in report['reports'][0]:
                     categories = ','.join(str(cat) for cat in report['reports'][0]['categories'])
             
-            # Check if threat already exists
             c.execute('SELECT * FROM threats WHERE ip = ?', (ip_address,))
             existing_threat = c.fetchone()
             
@@ -1173,26 +1152,16 @@ def test_ip(ip_address):
                      categories, report.get('countryCode', ''))
                 )
                 log_message(f"Inserted into threats table for {ip_address}: last_seen={check_date}")
-            
-            # Send email notification if enabled
-            try:
-                send_email_notification(ip_address, report, config)
-            except Exception as e:
-                log_message(f"Failed to send email notification: {str(e)}")
         else:
             log_message(f"Clean IP tested: {ip_address} (Score: {abuse_score})")
-            # Remove from threats table if it exists but is no longer a threat
             c.execute('DELETE FROM threats WHERE ip = ?', (ip_address,))
             if c.rowcount > 0:
                 log_message(f"Removed {ip_address} from threats table (no longer a threat)")
         
         conn.commit()
         
-        # Update total checks
         total_checks = int(get_db_stats(conn, 'total_checks') or '0') + 1
         update_db_stats(conn, 'total_checks', str(total_checks))
-        
-        # Update last check time
         update_db_stats(conn, 'last_check', check_date)
         
         result = {
@@ -1205,10 +1174,10 @@ def test_ip(ip_address):
             "isp": str(report.get("isp", "Unknown")),
             "domain": str(report.get("domain", "Unknown")),
             "reports": report.get("totalReports", 0),
-            "last_reported": str(report.get("lastReportedAt", "Never"))
+            "last_reported": str(report.get("lastReportedAt", "Never")),
+            "last_checked": format_timestamp()  # Add formatted timestamp
         }
         
-        # Convert any None values to empty strings
         for key, value in result.items():
             if value is None:
                 result[key] = ""

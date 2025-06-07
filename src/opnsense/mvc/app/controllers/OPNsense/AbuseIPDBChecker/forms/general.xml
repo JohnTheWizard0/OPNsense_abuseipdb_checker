@@ -31,18 +31,12 @@
         <help>Minimum confidence score to consider an IP malicious (1-100)</help>
     </field>
     <field>
-        <id>abuseipdbchecker.general.DailyCheckLimit</id>
-        <label>Daily Check Limit</label>
-        <type>text</type>
-        <help>Maximum number of IPs to check per day</help>
-    </field>
-    <field>
         <id>abuseipdbchecker.general.IgnoreBlockedConnections</id>
         <label>Ignore Blocked Connections</label>
         <type>checkbox</type>
         <help>Only monitor allowed connections (ignore blocked traffic)</help>
     </field>
-        <field>
+    <field>
         <label>OPNsense API Access</label>
         <type>header</type>
         <help>Configure API credentials for alias management</help>

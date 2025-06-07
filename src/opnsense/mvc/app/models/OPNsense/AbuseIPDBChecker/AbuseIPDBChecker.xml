@@ -36,13 +36,6 @@
                 <MaximumValue>100</MaximumValue>
                 <description>Minimum score to consider an IP malicious</description>
             </MaliciousThreshold>
-            <DailyCheckLimit type="IntegerField">
-                <default>100</default>
-                <Required>N</Required>
-                <MinimumValue>1</MinimumValue>
-                <MaximumValue>1000</MaximumValue>
-                <description>Maximum number of IPs to check per day</description>
-            </DailyCheckLimit>
             <IgnoreBlockedConnections type="BooleanField">
                 <default>1</default>
                 <Required>N</Required>
@@ -50,12 +43,12 @@
             </IgnoreBlockedConnections>
             <ApiKey type="TextField">
                 <default></default>
-                <Required>N</Required>
+                <Required>Y</Required>
                 <description>OPNsense API Key for alias management</description>
             </ApiKey>
             <ApiSecret type="TextField">
                 <default></default>
-                <Required>N</Required>
+                <Required>Y</Required>
                 <description>OPNsense API Secret for alias management</description>
             </ApiSecret>
         </general>
@@ -89,52 +82,14 @@
                 <MaximumValue>365</MaximumValue>
                 <description>Max age in days for IP reports</description>
             </MaxAge>
-        </api>
-        <email>
-            <Enabled type="BooleanField">
-                <default>1</default>
-                <Required>N</Required>
-                <description>Enable email notifications</description>
-            </Enabled>
-            <SmtpServer type="TextField">
-                <default>smtp.example.com</default>
-                <Required>N</Required>
-                <description>SMTP Server</description>
-            </SmtpServer>
-            <SmtpPort type="IntegerField">
-                <default>587</default>
+            <DailyCheckLimit type="IntegerField">
+                <default>100</default>
                 <Required>N</Required>
                 <MinimumValue>1</MinimumValue>
-                <MaximumValue>65535</MaximumValue>
-                <description>SMTP Port</description>
-            </SmtpPort>
-            <SmtpUsername type="TextField">
-                <default></default>
-                <Required>N</Required>
-                <description>SMTP Username</description>
-            </SmtpUsername>
-            <SmtpPassword type="TextField">
-                <default></default>
-                <Required>N</Required>
-                <description>SMTP Password</description>
-                <mask>true</mask>
-            </SmtpPassword>
-            <FromAddress type="TextField">
-                <default>firewall@yourdomain.com</default>
-                <Required>N</Required>
-                <description>From Email Address</description>
-            </FromAddress>
-            <ToAddress type="TextField">
-                <default>admin@yourdomain.com</default>
-                <Required>N</Required>
-                <description>To Email Address</description>
-            </ToAddress>
-            <UseTLS type="BooleanField">
-                <default>1</default>
-                <Required>N</Required>
-                <description>Use TLS for SMTP</description>
-            </UseTLS>
-        </email>
+                <MaximumValue>1000</MaximumValue>
+                <description>Maximum number of IPs to check per day</description>
+            </DailyCheckLimit>
+        </api>
         <alias>
             <Enabled type="BooleanField">
                 <default>1</default>
