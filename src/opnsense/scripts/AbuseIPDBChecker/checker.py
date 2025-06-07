@@ -1647,43 +1647,6 @@ def get_batch_status():
             'message': f'Error getting batch status: {str(e)}'
         }
 
-def get_threat_ips_from_database(config):
-    """Get threat IPs from database based on configuration"""
-    threat_ips = []
-    
-    if not os.path.exists(DB_FILE):
-        return threat_ips
-    
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        
-        # Build query based on configuration
-        min_threat_level = 1 if config['alias_include_suspicious'] else 2
-        max_hosts = config['alias_max_recent_hosts']
-        
-        c.execute('''
-        SELECT t.ip
-        FROM threats t
-        JOIN checked_ips ci ON t.ip = ci.ip
-        WHERE ci.threat_level >= ?
-        ORDER BY 
-            t.abuse_score DESC,
-            ci.last_checked DESC
-        LIMIT ?
-        ''', (min_threat_level, max_hosts))
-        
-        for row in c.fetchall():
-            threat_ips.append(row['ip'])
-        
-        conn.close()
-        
-    except Exception as e:
-        log_message(f"Error getting threat IPs from database: {str(e)}")
-    
-    return threat_ips
-
 def create_malicious_ips_alias():
     """Create MaliciousIPs alias using configd action"""
     try:

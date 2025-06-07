@@ -1,32 +1,8 @@
 #!/usr/local/bin/python3
 
 """
-    Copyright (c) 2023 Your Name
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-     this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-     notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-
-    --------------------------------------------------------------------------------------
-    Alias Management Script for AbuseIPDB Checker
+CORRECTED Alias Management Script for AbuseIPDB Checker
+Using the proper OPNsense alias structure discovered from WebGUI export
 """
 
 import os
@@ -85,15 +61,6 @@ def read_config():
     
     return config
 
-def classify_threat_level(abuse_score):
-    """Classify threat level based on abuse score"""
-    if abuse_score < 40:
-        return 0  # Safe
-    elif abuse_score < 70:
-        return 1  # Suspicious
-    else:
-        return 2  # Malicious
-
 def get_threat_ips_from_database(config):
     """Get threat IPs from database based on configuration"""
     threat_ips = []
@@ -148,8 +115,8 @@ def execute_php_script(php_code):
             ], capture_output=True, text=True, timeout=30)
             
             log_message(f"PHP execution: exit_code={result.returncode}")
-            log_message(f"PHP stdout: {result.stdout[:200]}...")
-            log_message(f"PHP stderr: {result.stderr[:200]}...")
+            if result.stderr:
+                log_message(f"PHP stderr: {result.stderr[:200]}...")
             
             return {
                 'exit_code': result.returncode,
@@ -172,7 +139,7 @@ def execute_php_script(php_code):
         }
 
 def create_alias():
-    """Create MaliciousIPs alias with correct OPNsense structure"""
+    """Create MaliciousIPs alias with CORRECT OPNsense structure"""
     try:
         config = read_config()
         if not config['alias_enabled']:
@@ -180,13 +147,16 @@ def create_alias():
         
         log_message("Creating alias with CORRECT OPNsense structure")
         
-        # Get threat IPs with proper newlines
+        # Get threat IPs
         threat_ips = get_threat_ips_from_database(config)
-        ip_content = '\n'.join(threat_ips) if threat_ips else '127.0.0.1'
+        ip_content = '\\n'.join(threat_ips) if threat_ips else '127.0.0.1'
         
-        # Generate UUID
+        # Generate UUID for the alias
         alias_uuid = str(uuid_module.uuid4())
+        current_timestamp = datetime.now().isoformat()
+        
         log_message(f"Generated UUID: {alias_uuid}")
+        log_message(f"IP content length: {len(ip_content)} chars, {len(threat_ips)} IPs")
         
         php_script = f'''<?php
 require_once '/usr/local/etc/inc/config.inc';
@@ -195,60 +165,86 @@ require_once '/usr/local/etc/inc/util.inc';
 try {{
     $config = config_read_array();
 
-    // Remove existing MaliciousIPs alias completely
+    // Remove any existing MaliciousIPs alias first
     if (isset($config['aliases']['alias'])) {{
-        foreach ($config['aliases']['alias'] as $index => $alias) {{
+        foreach ($config['aliases']['alias'] as $uuid => $alias) {{
             if (isset($alias['name']) && $alias['name'] == 'MaliciousIPs') {{
-                unset($config['aliases']['alias'][$index]);
-                break;
+                unset($config['aliases']['alias'][$uuid]);
+                echo "REMOVED_EXISTING: $uuid\\n";
             }}
         }}
-        // Reindex array
-        $config['aliases']['alias'] = array_values($config['aliases']['alias']);
     }}
 
-    // Initialize if needed
+    // Initialize aliases section if needed
     if (!isset($config['aliases']['alias'])) {{
         $config['aliases']['alias'] = array();
     }}
 
-    // Create with PROPER structure (using content field like debug shows)
-    $new_alias = array(
-        'uuid' => '{alias_uuid}',
+    // Create with PROPER OPNsense structure (UUID as KEY, not field)
+    $alias_uuid = '{alias_uuid}';
+    $config['aliases']['alias'][$alias_uuid] = array(
+        'enabled' => '1',
         'name' => 'MaliciousIPs',
         'type' => 'host',
+        'path_expression' => '',
+        'proto' => '',
+        'interface' => '',
+        'counters' => '0',
+        'updatefreq' => '',
         'content' => '{ip_content}',
-        'description' => 'AbuseIPDB malicious IPs',
-        'enabled' => '1'
+        'password' => '',
+        'username' => '',
+        'authtype' => '',
+        'categories' => '',
+        'current_items' => '{len(threat_ips)}',
+        'last_updated' => '{current_timestamp}',
+        'description' => 'AbuseIPDB malicious IPs (auto-managed)'
     );
 
-    $config['aliases']['alias'][] = $new_alias;
+    // Save configuration
+    write_config("AbuseIPDB: Created proper MaliciousIPs alias with {len(threat_ips)} IPs");
 
-    // Save and reload
-    write_config("AbuseIPDB: Created MaliciousIPs with UUID");
+    // Reload configuration
     configd_run('template reload OPNsense/Filter');
+    sleep(1);
     configd_run('filter reload');
 
-    echo "SUCCESS:{alias_uuid}";
+    echo "SUCCESS:$alias_uuid:{len(threat_ips)}\\n";
+
 }} catch (Exception $e) {{
-    echo "ERROR:" . $e->getMessage();
+    echo "ERROR:" . $e->getMessage() . "\\n";
     exit(1);
 }}
 ?>'''
         
         result = execute_php_script(php_script)
         
-        if result['exit_code'] == 0 and result['stdout'].startswith("SUCCESS:"):
-            uuid = result['stdout'].split(":")[1].strip()
-            log_message(f"Alias created successfully with UUID: {uuid}")
-            return {
-                'status': 'ok',
-                'message': f'MaliciousIPs alias created with UUID and {len(threat_ips)} IPs',
-                'uuid': uuid,
-                'ip_count': len(threat_ips)
-            }
-        else:
-            return {'status': 'error', 'message': f'Creation failed: {result["stderr"]}'}
+        # FIX: Check if SUCCESS appears ANYWHERE in stdout, not just at start
+        if result['exit_code'] == 0 and "SUCCESS:" in result['stdout']:
+            # Extract the SUCCESS line specifically
+            success_line = ""
+            for line in result['stdout'].split('\n'):
+                if line.startswith("SUCCESS:"):
+                    success_line = line
+                    break
+            
+            if success_line:
+                parts = success_line.strip().split(":")
+                uuid = parts[1] if len(parts) > 1 else alias_uuid
+                ip_count = parts[2] if len(parts) > 2 else len(threat_ips)
+                
+                log_message(f"Alias created successfully with UUID: {uuid}")
+                return {
+                    'status': 'ok',
+                    'message': f'MaliciousIPs alias created with proper structure and {ip_count} IPs',
+                    'uuid': uuid,
+                    'ip_count': int(ip_count)
+                }
+        
+        # If we get here, there was an error
+        error_msg = f'Creation failed: {result["stderr"]} | {result["stdout"]}'
+        log_message(error_msg)
+        return {'status': 'error', 'message': error_msg}
                 
     except Exception as e:
         error_msg = f"Error creating alias: {str(e)}"
@@ -256,17 +252,18 @@ try {{
         return {'status': 'error', 'message': error_msg}
 
 def update_alias():
-    """Update MaliciousIPs alias"""
+    """Update MaliciousIPs alias with proper structure"""
     try:
         config = read_config()
         if not config['alias_enabled']:
             return {'status': 'disabled', 'message': 'Alias integration is disabled'}
         
-        log_message("Starting alias update")
+        log_message("Starting alias update with proper structure")
         
         # Get current threat IPs
         threat_ips = get_threat_ips_from_database(config)
         ip_content = '\\n'.join(threat_ips) if threat_ips else ''
+        current_timestamp = datetime.now().isoformat()
         
         php_script = f'''<?php
 require_once '/usr/local/etc/inc/config.inc';
@@ -275,36 +272,42 @@ require_once '/usr/local/etc/inc/util.inc';
 try {{
     $config = config_read_array();
 
-    // Find the MaliciousIPs alias
+    // Find the MaliciousIPs alias (UUID as key)
     $alias_found = false;
     $alias_uuid = null;
+    
     if (isset($config['aliases']['alias'])) {{
-        foreach ($config['aliases']['alias'] as &$alias) {{
-            if ($alias['name'] == 'MaliciousIPs') {{
-                $alias['address'] = '{ip_content}';
-                $alias['descr'] = 'Automatically maintained list of malicious IPs detected by AbuseIPDB Checker (Updated: ' . date('Y-m-d H:i:s') . ')';
+        foreach ($config['aliases']['alias'] as $uuid => $alias) {{
+            if (isset($alias['name']) && $alias['name'] == 'MaliciousIPs') {{
+                // Update with proper structure
+                $config['aliases']['alias'][$uuid]['content'] = '{ip_content}';
+                $config['aliases']['alias'][$uuid]['current_items'] = '{len(threat_ips)}';
+                $config['aliases']['alias'][$uuid]['last_updated'] = '{current_timestamp}';
+                $config['aliases']['alias'][$uuid]['description'] = 'AbuseIPDB malicious IPs (Updated: ' . date('Y-m-d H:i:s') . ')';
+                
                 $alias_found = true;
-                $alias_uuid = isset($alias['uuid']) ? $alias['uuid'] : 'unknown';
+                $alias_uuid = $uuid;
                 break;
             }}
         }}
     }}
 
     if (!$alias_found) {{
-        echo "NOT_FOUND";
+        echo "NOT_FOUND\\n";
         exit(1);
     }}
 
     // Save configuration
-    write_config("AbuseIPDB Checker: Updated MaliciousIPs alias with {len(threat_ips)} IPs");
+    write_config("AbuseIPDB: Updated MaliciousIPs alias with {len(threat_ips)} IPs");
 
-    // Reload aliases and firewall
+    // Reload configuration
     configd_run('template reload OPNsense/Filter');
     configd_run('filter reload');
 
-    echo "UPDATED:$alias_uuid:{len(threat_ips)}";
+    echo "UPDATED:$alias_uuid:{len(threat_ips)}\\n";
+
 }} catch (Exception $e) {{
-    echo "ERROR:" . $e->getMessage();
+    echo "ERROR:" . $e->getMessage() . "\\n";
     exit(1);
 }}
 ?>'''
@@ -313,23 +316,29 @@ try {{
         
         if result['exit_code'] == 0:
             output = result['stdout'].strip()
-            if output == "NOT_FOUND":
-                log_message("Alias not found, attempting to create it")
+            
+            # Check for NOT_FOUND anywhere in output
+            if "NOT_FOUND" in output:
+                log_message("Alias not found, creating new one")
                 return create_alias()
-            elif output.startswith("UPDATED:"):
-                parts = output.split(":")
-                uuid = parts[1] if len(parts) > 1 else 'unknown'
-                ip_count = parts[2] if len(parts) > 2 else len(threat_ips)
-                log_message(f"Alias updated successfully: UUID={uuid}, IPs={ip_count}")
-                return {
-                    'status': 'ok',
-                    'message': f'Alias updated with {ip_count} IPs',
-                    'uuid': uuid,
-                    'ip_count': int(ip_count)
-                }
-            else:
-                log_message(f"Unexpected PHP output: {output}")
-                return {'status': 'error', 'message': f'Unexpected output: {output}'}
+            # Check for UPDATED anywhere in output  
+            elif "UPDATED:" in output:
+                # Extract the UPDATED line specifically
+                for line in output.split('\n'):
+                    if line.startswith("UPDATED:"):
+                        parts = line.split(":")
+                        uuid = parts[1] if len(parts) > 1 else 'unknown'
+                        ip_count = parts[2] if len(parts) > 2 else len(threat_ips)
+                        log_message(f"Alias updated successfully: UUID={uuid}, IPs={ip_count}")
+                        return {
+                            'status': 'ok',
+                            'message': f'Alias updated with proper structure and {ip_count} IPs',
+                            'uuid': uuid,
+                            'ip_count': int(ip_count)
+                        }
+            
+            log_message(f"Unexpected PHP output: {output}")
+            return {'status': 'error', 'message': f'Unexpected output: {output}'}
         else:
             error_msg = f"PHP script failed: {result['stderr']}"
             log_message(error_msg)
@@ -341,11 +350,10 @@ try {{
         return {'status': 'error', 'message': error_msg}
 
 def test_alias():
-    """Test alias functionality"""
+    """Test alias functionality with proper structure"""
     try:
-        log_message("Testing alias functionality")
+        log_message("Testing alias functionality with proper structure")
         
-        # First try to update (which will create if not exists)
         result = update_alias()
         log_message(f"Alias test result: {result['status']} - {result.get('message', 'No message')}")
         
@@ -357,7 +365,8 @@ def test_alias():
             'config_enabled': config['alias_enabled'],
             'include_suspicious': config['alias_include_suspicious'],
             'max_hosts': config['alias_max_recent_hosts'],
-            'current_threat_count': threat_count
+            'current_threat_count': threat_count,
+            'structure': 'CORRECTED - UUID as key with all required fields'
         }
         
         return result
@@ -374,7 +383,7 @@ def main():
             return {'status': 'error', 'message': 'Mode required: create, update, or test'}
         
         mode = sys.argv[1].lower()
-        log_message(f"Alias management script started in {mode} mode")
+        log_message(f"CORRECTED alias management script started in {mode} mode")
         
         if mode == 'create':
             result = create_alias()
@@ -386,7 +395,7 @@ def main():
             result = {'status': 'error', 'message': f'Invalid mode: {mode}'}
         
         print(json.dumps(result, separators=(',', ':')))
-        log_message(f"Alias operation completed: {result['status']}")
+        log_message(f"CORRECTED alias operation completed: {result['status']}")
         
     except Exception as e:
         error_result = {'status': 'error', 'message': f'Script error: {str(e)}'}
