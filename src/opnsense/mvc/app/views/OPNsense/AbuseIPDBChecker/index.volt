@@ -459,6 +459,10 @@
                 if (data && data.status === 'ok') {
                     $("#total-ips-checked").text(data.total_ips || 0);
                     $("#total-threats").text(data.total_threats || 0);
+                    // Add breakdown info if available
+                    if (data.threat_breakdown) {
+                        $("#total-threats").attr('title', data.threat_breakdown);
+                    }
                     $("#checks-today").text(data.daily_checks || 0);
                     $("#last-run").text(data.last_check || 'Never');
                 }
@@ -957,7 +961,7 @@
                                     <td id="total-ips-checked">0</td>
                                 </tr>
                                 <tr>
-                                    <td>{{ lang._('Total Threats Detected') }}</td>
+                                    <td>{{ lang._('Total Threats Detected') }} <i class="fa fa-info-circle" title="Counts threats included in MaliciousIPs alias based on current settings"></i></td>
                                     <td id="total-threats">0</td>
                                 </tr>
                                 <tr>

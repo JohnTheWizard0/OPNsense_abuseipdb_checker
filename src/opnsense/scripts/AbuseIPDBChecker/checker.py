@@ -722,65 +722,6 @@ def check_ip_abuseipdb(ip, config):
         log_message(f"Error checking IP {ip}: {str(e)}")
         raise Exception(f"Error checking IP: {str(e)}")
 
-def send_email_notification(threat_ip, report, config):
-    """Send email notification about detected threat"""
-    if not config['email_enabled'] or not config['smtp_server'] or not config['from_address'] or not config['to_address']:
-        return False
-    
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = config['from_address']
-        msg['To'] = config['to_address']
-        msg['Subject'] = f"AbuseIPDB Alert: Malicious IP {threat_ip} detected"
-        
-        body = f"""
-        <html>
-        <body>
-            <h2>AbuseIPDB Threat Alert</h2>
-            <p>A potentially malicious IP has been detected connecting to your network:</p>
-            <table border="1" cellpadding="5">
-                <tr>
-                    <th>IP Address</th>
-                    <td>{threat_ip}</td>
-                </tr>
-                <tr>
-                    <th>Abuse Confidence Score</th>
-                    <td>{report.get('abuseConfidenceScore', 'N/A')}%</td>
-                </tr>
-                <tr>
-                    <th>Reports Count</th>
-                    <td>{report.get('totalReports', 'N/A')}</td>
-                </tr>
-                <tr>
-                    <th>Last Reported</th>
-                    <td>{report.get('lastReportedAt', 'N/A')}</td>
-                </tr>
-                <tr>
-                    <th>Country</th>
-                    <td>{report.get('countryCode', 'N/A')}</td>
-                </tr>
-            </table>
-            <p>Details: <a href="https://www.abuseipdb.com/check/{threat_ip}">View on AbuseIPDB</a></p>
-        </body>
-        </html>
-        """
-        
-        msg.attach(MIMEText(body, 'html'))
-        
-        server = smtplib.SMTP(config['smtp_server'], config['smtp_port'])
-        if config['use_tls']:
-            server.starttls()
-        
-        if config['smtp_username'] and config['smtp_password']:
-            server.login(config['smtp_username'], config['smtp_password'])
-        
-        server.send_message(msg)
-        server.quit()
-        return True
-    except Exception as e:
-        print(f"Error sending email: {str(e)}", file=sys.stderr)
-        return False
-
 def update_db_stats(conn, key, value):
     """Update a value in the stats table"""
     try:
@@ -922,8 +863,9 @@ def run_checker(config):
     
     finally:
         conn.close()
+
 def get_statistics():
-    """Get statistics from the database"""
+    """Get statistics from the database with threat counts matching alias logic"""
     if not os.path.exists(DB_FILE):
         return {'status': 'error', 'message': 'Database not initialized'}
     
@@ -933,13 +875,31 @@ def get_statistics():
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         
+        # Read configuration to match alias logic
+        config = read_config()
+        
         # Get total IPs checked
         c.execute('SELECT COUNT(*) as count FROM checked_ips')
         total_ips = c.fetchone()['count']
         
-        # Get total threats
-        c.execute('SELECT COUNT(*) as count FROM threats')
+        # Get threats count based on alias configuration
+        # This ensures statistics match what's actually in the alias
+        min_threat_level = 1 if config.get('alias_include_suspicious', False) else 2
+        
+        c.execute('''
+        SELECT COUNT(*) as count 
+        FROM threats t
+        JOIN checked_ips ci ON t.ip = ci.ip
+        WHERE ci.threat_level >= ?
+        ''', (min_threat_level,))
         total_threats = c.fetchone()['count']
+        
+        # Get breakdown for additional insight
+        c.execute('SELECT COUNT(*) as count FROM checked_ips WHERE threat_level = 1')
+        suspicious_count = c.fetchone()['count']
+        
+        c.execute('SELECT COUNT(*) as count FROM checked_ips WHERE threat_level = 2')
+        malicious_count = c.fetchone()['count']
         
         # Get last check time with fallback
         c.execute('SELECT value FROM stats WHERE key = ?', ('last_check',))
@@ -951,13 +911,23 @@ def get_statistics():
         row = c.fetchone()
         daily_checks = row['value'] if row else '0'
         
-        config = read_config()
         daily_limit = config['daily_check_limit']
+        
+        # Add breakdown info for better transparency
+        breakdown_info = f"Malicious: {malicious_count}"
+        if config.get('alias_include_suspicious', False):
+            breakdown_info += f", Suspicious: {suspicious_count}"
+        else:
+            breakdown_info += f" (excluding {suspicious_count} suspicious)"
         
         return {
             'status': 'ok',
             'total_ips': total_ips,
-            'total_threats': total_threats,
+            'total_threats': total_threats,  # Now matches alias count
+            'malicious_count': malicious_count,
+            'suspicious_count': suspicious_count,
+            'threat_breakdown': breakdown_info,
+            'alias_includes_suspicious': config.get('alias_include_suspicious', False),
             'last_check': last_check,
             'daily_checks': daily_checks,
             'daily_limit': daily_limit
@@ -1571,12 +1541,6 @@ def process_ip_batch(ip_batch, config):
                         threats_detected += 1
                         log_message(f"🚨 THREAT DETECTED: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)})")
                         
-                        # Send email notification (non-blocking)
-                        try:
-                            if send_email_notification(ip, report, config):
-                                log_message(f"Email notification sent for threat: {ip}")
-                        except Exception as e:
-                            log_message(f"Failed to send email for {ip}: {str(e)}")
                     else:
                         # Remove from threats table if it's now safe
                         c.execute('DELETE FROM threats WHERE ip = ?', (ip,))
