@@ -48,6 +48,16 @@
                 <Required>N</Required>
                 <description>Only monitor allowed connections (ignore blocked traffic)</description>
             </IgnoreBlockedConnections>
+            <ApiKey type="TextField">
+                <default></default>
+                <Required>N</Required>
+                <description>OPNsense API Key for alias management</description>
+            </ApiKey>
+            <ApiSecret type="TextField">
+                <default></default>
+                <Required>N</Required>
+                <description>OPNsense API Secret for alias management</description>
+            </ApiSecret>
         </general>
         <network>
             <LanSubnets type="TextField">

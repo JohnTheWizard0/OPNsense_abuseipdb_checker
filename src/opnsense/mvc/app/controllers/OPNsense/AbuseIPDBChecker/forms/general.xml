@@ -42,4 +42,21 @@
         <type>checkbox</type>
         <help>Only monitor allowed connections (ignore blocked traffic)</help>
     </field>
+        <field>
+        <label>OPNsense API Access</label>
+        <type>header</type>
+        <help>Configure API credentials for alias management</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.ApiKey</id>
+        <label>API Key</label>
+        <type>text</type>
+        <help>OPNsense API key for alias management</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.general.ApiSecret</id>
+        <label>API Secret</label>
+        <type>password</type>
+        <help>OPNsense API secret for alias management</help>
+    </field>
 </form>

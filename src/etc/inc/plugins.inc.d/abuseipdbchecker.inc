@@ -26,17 +26,19 @@ function abuseipdbchecker_configure() {
 }
 
 function abuseipdbchecker_setup() {
+    // Create required directories
     mwexec("mkdir -p /var/log/abuseipdbchecker");
     mwexec("mkdir -p /var/db/abuseipdbchecker");
     mwexec("chmod -R 777 /var/log/abuseipdbchecker");
     mwexec("chmod -R 777 /var/db/abuseipdbchecker");
     
+    // Initialize database if not exists
     if (!file_exists('/var/db/abuseipdbchecker/abuseipdb.db')) {
         mwexec("/usr/local/opnsense/scripts/AbuseIPDBChecker/setup_database.py");
     }
     
-    // Create MaliciousIPs alias using new native API approach
-    mwexec("configctl abuseipdbchecker createalias");
+    // Note: Alias creation is now handled automatically by the RC script on service start
+    syslog(LOG_NOTICE, "AbuseIPDB: Setup completed - alias will be managed automatically by service");
     
     return true;
 }
@@ -51,4 +53,3 @@ function abuseipdbchecker_xmlrpc_sync() {
     );
     return $result;
 }
-

@@ -13,6 +13,81 @@ class ServiceController extends ApiMutableServiceControllerBase
     protected static $internalServiceName = 'abuseipdbchecker';
 
     /**
+     * start abuseipdbchecker service
+     */
+    public function startAction()
+    {
+        $result = array("result" => "failed");
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $response = $backend->configdRun("abuseipdbchecker start");
+            if (strpos($response, "OK") !== false || strpos($response, "Starting") !== false || strpos($response, "started") !== false) {
+                $result['result'] = "OK";
+                $result['status'] = "ok";
+            } else {
+                $result['message'] = trim($response);
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * stop abuseipdbchecker service
+     */
+    public function stopAction()
+    {
+        $result = array("result" => "failed");
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $response = $backend->configdRun("abuseipdbchecker stop");
+            if (strpos($response, "OK") !== false || strpos($response, "Stopping") !== false || strpos($response, "stopped") !== false) {
+                $result['result'] = "OK";
+                $result['status'] = "ok";
+            } else {
+                $result['message'] = trim($response);
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * restart abuseipdbchecker service
+     */
+    public function restartAction()
+    {
+        $result = array("result" => "failed");
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $response = $backend->configdRun("abuseipdbchecker restart");
+            if (strpos($response, "OK") !== false || strpos($response, "Starting") !== false || strpos($response, "Restart") !== false) {
+                $result['result'] = "OK";
+                $result['status'] = "ok";
+            } else {
+                $result['message'] = trim($response);
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * retrieve status of abuseipdbchecker
+     */
+    public function statusAction()
+    {
+        $backend = new Backend();
+        $response = $backend->configdRun("abuseipdbchecker status");
+        
+        $result = array();
+        if (strpos($response, "is running") !== false || strpos($response, "EXIT_CODE:0") !== false) {
+            $result['status'] = 'running';
+        } else {
+            $result['status'] = 'stopped';
+        }
+        
+        return $result;
+    }
+
+    /**
      * initialize database
      */
     public function initdbAction()

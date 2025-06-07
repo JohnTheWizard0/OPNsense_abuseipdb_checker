@@ -103,7 +103,7 @@
             updateStats();
         });
 
-        // Save button handler
+        // Enhanced Save button handler with validation
         $("#saveAct").click(function() {
             console.log("Save button clicked");
     
@@ -124,25 +124,50 @@
                 }
             });
 
-            // Validate API key if enabled
+            // Enhanced validation
             var enabled = $("#abuseipdbchecker\\.general\\.Enabled").prop('checked');
             var apiKey = $("#abuseipdbchecker\\.api\\.Key").val();
+            var opnApiKey = $("#abuseipdbchecker\\.general\\.ApiKey").val();
+            var opnApiSecret = $("#abuseipdbchecker\\.general\\.ApiSecret").val();
             
-            if (enabled && (apiKey === "" || apiKey === "YOUR_API_KEY")) {
-                BootstrapDialog.show({
-                    type: BootstrapDialog.TYPE_DANGER,
-                    title: "{{ lang._('Error') }}",
-                    message: "{{ lang._('API key is required to enable the plugin. Please configure a valid API key in the API tab.') }}",
-                    buttons: [{
-                        label: "{{ lang._('Close') }}",
-                        action: function(dialogRef) {
-                            dialogRef.close();
-                        }
-                    }]
-                });
-                return;
+            if (enabled) {
+                if (!apiKey || apiKey === "YOUR_API_KEY") {
+                    $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
+                    BootstrapDialog.show({
+                        type: BootstrapDialog.TYPE_DANGER,
+                        title: "{{ lang._('Validation Error') }}",
+                        message: "{{ lang._('AbuseIPDB API key is required to enable the plugin. Please configure a valid API key in the API tab.') }}"
+                    });
+                    return;
+                }
+                
+                if (!opnApiKey || !opnApiSecret) {
+                    $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
+                    BootstrapDialog.show({
+                        type: BootstrapDialog.TYPE_WARNING,
+                        title: "{{ lang._('Warning') }}",
+                        message: "{{ lang._('OPNsense API credentials are missing. The service will work but alias management will be disabled. You can add API credentials later in the General tab.') }}",
+                        buttons: [{
+                            label: "{{ lang._('Continue Anyway') }}",
+                            action: function(dialogRef) {
+                                dialogRef.close();
+                                saveSettings(data);
+                            }
+                        }, {
+                            label: "{{ lang._('Cancel') }}",
+                            action: function(dialogRef) {
+                                dialogRef.close();
+                            }
+                        }]
+                    });
+                    return;
+                }
             }
             
+            saveSettings(data);
+        });
+        
+        function saveSettings(data) {
             // Send the data to the server
             ajaxCall(
                 "/api/abuseipdbchecker/settings/set",
@@ -156,26 +181,27 @@
                         BootstrapDialog.show({
                             type: BootstrapDialog.TYPE_SUCCESS,
                             title: "{{ lang._('Settings saved') }}",
-                            message: "{{ lang._('All settings have been saved successfully.') }}"
+                            message: "{{ lang._('All settings have been saved successfully. The service will automatically create/update the MaliciousIPs alias if enabled.') }}"
                         });
                         
-                        // Refresh data displays
+                        // Refresh displays
                         updateStats();
                         updateThreats();
                         updateAllScannedIPs();
                         updateLogs();
+                        updateServiceStatus();
                     } else {
                         // Error notification
                         BootstrapDialog.show({
                             type: BootstrapDialog.TYPE_DANGER,
                             title: "{{ lang._('Error') }}",
-                            message: "{{ lang._('There was an error saving settings.') }}"
+                            message: "{{ lang._('There was an error saving settings: ') }}" + (data.message || "{{ lang._('Unknown error') }}")
                         });
                     }
                 }
             );
-        });
-        
+        }
+
         // Test IP button handler  
         $("#testIpBtn").click(function() {
             var ip = $("#ipToTest").val().trim();
@@ -539,6 +565,202 @@
             });
         }
 
+        // Service control functions
+        function updateServiceStatus() {
+            $.ajax({
+                url: '/api/abuseipdbchecker/service/status',
+                type: 'POST',
+                dataType: 'json',
+                timeout: 5000,
+                success: function(data) {
+                    if (data && data.status === 'running') {
+                        $('#service-status').removeClass('text-danger text-warning').addClass('text-success').text('{{ lang._("Running") }}');
+                        $('#service-start').prop('disabled', true);
+                        $('#service-stop, #service-restart').prop('disabled', false);
+                    } else {
+                        $('#service-status').removeClass('text-success text-warning').addClass('text-danger').text('{{ lang._("Stopped") }}');
+                        $('#service-start').prop('disabled', false);
+                        $('#service-stop, #service-restart').prop('disabled', true);
+                    }
+                },
+                error: function() {
+                    $('#service-status').removeClass('text-success text-danger').addClass('text-warning').text('{{ lang._("Unknown") }}');
+                    $('#service-start, #service-stop, #service-restart').prop('disabled', false);
+                }
+            });
+        }
+
+        // Service control button handlers
+        $('#service-start').click(function() {
+            $(this).prop('disabled', true);
+            $('#service-status').text('{{ lang._("Starting...") }}');
+            
+            $.post('/api/abuseipdbchecker/service/start', function(data) {
+                if (data && data.status === 'ok') {
+                    BootstrapDialog.show({
+                        type: BootstrapDialog.TYPE_SUCCESS,
+                        title: '{{ lang._("Success") }}',
+                        message: '{{ lang._("Service started successfully") }}'
+                    });
+                } else {
+                    BootstrapDialog.show({
+                        type: BootstrapDialog.TYPE_DANGER,
+                        title: '{{ lang._("Error") }}',
+                        message: data.message || '{{ lang._("Failed to start service") }}'
+                    });
+                }
+                setTimeout(updateServiceStatus, 2000);
+            }).fail(function() {
+                BootstrapDialog.show({
+                    type: BootstrapDialog.TYPE_DANGER,
+                    title: '{{ lang._("Error") }}',
+                    message: '{{ lang._("Failed to communicate with service") }}'
+                });
+                setTimeout(updateServiceStatus, 2000);
+            });
+        });
+
+        $('#service-stop').click(function() {
+            $(this).prop('disabled', true);
+            $('#service-status').text('{{ lang._("Stopping...") }}');
+            
+            $.post('/api/abuseipdbchecker/service/stop', function(data) {
+                if (data && data.status === 'ok') {
+                    BootstrapDialog.show({
+                        type: BootstrapDialog.TYPE_SUCCESS,
+                        title: '{{ lang._("Success") }}',
+                        message: '{{ lang._("Service stopped successfully") }}'
+                    });
+                } else {
+                    BootstrapDialog.show({
+                        type: BootstrapDialog.TYPE_DANGER,
+                        title: '{{ lang._("Error") }}',
+                        message: data.message || '{{ lang._("Failed to stop service") }}'
+                    });
+                }
+                setTimeout(updateServiceStatus, 2000);
+            }).fail(function() {
+                BootstrapDialog.show({
+                    type: BootstrapDialog.TYPE_DANGER,
+                    title: '{{ lang._("Error") }}',
+                    message: '{{ lang._("Failed to communicate with service") }}'
+                });
+                setTimeout(updateServiceStatus, 2000);
+            });
+        });
+
+        $('#service-restart').click(function() {
+            $(this).prop('disabled', true);
+            $('#service-status').text('{{ lang._("Restarting...") }}');
+            
+            $.post('/api/abuseipdbchecker/service/restart', function(data) {
+                if (data && data.status === 'ok') {
+                    BootstrapDialog.show({
+                        type: BootstrapDialog.TYPE_SUCCESS,
+                        title: '{{ lang._("Success") }}',
+                        message: '{{ lang._("Service restarted successfully") }}'
+                    });
+                } else {
+                    BootstrapDialog.show({
+                        type: BootstrapDialog.TYPE_DANGER,
+                        title: '{{ lang._("Error") }}',
+                        message: data.message || '{{ lang._("Failed to restart service") }}'
+                    });
+                }
+                setTimeout(updateServiceStatus, 3000);
+            }).fail(function() {
+                BootstrapDialog.show({
+                    type: BootstrapDialog.TYPE_DANGER,
+                    title: '{{ lang._("Error") }}',
+                    message: '{{ lang._("Failed to communicate with service") }}'
+                });
+                setTimeout(updateServiceStatus, 2000);
+            });
+        });
+
+        // Settings validation
+        $('#validate-settings').click(function() {
+            var errors = [];
+            var warnings = [];
+            
+            // Check if enabled
+            var enabled = $("#abuseipdbchecker\\.general\\.Enabled").prop('checked');
+            if (!enabled) {
+                warnings.push('{{ lang._("Service is disabled") }}');
+            }
+            
+            // Check AbuseIPDB API key
+            var abuseApiKey = $("#abuseipdbchecker\\.api\\.Key").val();
+            if (!abuseApiKey || abuseApiKey === "YOUR_API_KEY") {
+                errors.push('{{ lang._("AbuseIPDB API key is required") }}');
+            }
+            
+            // Check OPNsense API credentials for alias management
+            var opnApiKey = $("#abuseipdbchecker\\.general\\.ApiKey").val();
+            var opnApiSecret = $("#abuseipdbchecker\\.general\\.ApiSecret").val();
+            if (!opnApiKey || !opnApiSecret) {
+                warnings.push('{{ lang._("OPNsense API credentials missing - alias management will not work") }}');
+            }
+            
+            // Check email settings if enabled
+            var emailEnabled = $("#abuseipdbchecker\\.email\\.Enabled").prop('checked');
+            if (emailEnabled) {
+                var smtpServer = $("#abuseipdbchecker\\.email\\.SmtpServer").val();
+                var fromEmail = $("#abuseipdbchecker\\.email\\.FromAddress").val();
+                var toEmail = $("#abuseipdbchecker\\.email\\.ToAddress").val();
+                
+                if (!smtpServer || smtpServer === "smtp.example.com") {
+                    errors.push('{{ lang._("SMTP server is required for email notifications") }}');
+                }
+                if (!fromEmail || fromEmail.includes("yourdomain.com")) {
+                    errors.push('{{ lang._("Valid from email address is required") }}');
+                }
+                if (!toEmail || toEmail.includes("yourdomain.com")) {
+                    errors.push('{{ lang._("Valid to email address is required") }}');
+                }
+            }
+            
+            // Show results
+            var message = '';
+            var type = BootstrapDialog.TYPE_SUCCESS;
+            
+            if (errors.length > 0) {
+                type = BootstrapDialog.TYPE_DANGER;
+                message += '<strong>{{ lang._("Errors (must fix):") }}</strong><ul>';
+                errors.forEach(function(error) {
+                    message += '<li>' + error + '</li>';
+                });
+                message += '</ul>';
+            }
+            
+            if (warnings.length > 0) {
+                if (type === BootstrapDialog.TYPE_SUCCESS) {
+                    type = BootstrapDialog.TYPE_WARNING;
+                }
+                message += '<strong>{{ lang._("Warnings:") }}</strong><ul>';
+                warnings.forEach(function(warning) {
+                    message += '<li>' + warning + '</li>';
+                });
+                message += '</ul>';
+            }
+            
+            if (errors.length === 0 && warnings.length === 0) {
+                message = '{{ lang._("All settings are valid! The service is ready to operate.") }}';
+            }
+            
+            BootstrapDialog.show({
+                type: type,
+                title: '{{ lang._("Settings Validation") }}',
+                message: message
+            });
+        });
+
+        // Initial service status check
+        updateServiceStatus();
+        
+        // Periodic service status updates
+        setInterval(updateServiceStatus, 15000); // Every 15 seconds
+
         // Reduced polling frequency and better lifecycle management
         var statusInterval = setInterval(refreshServiceStatus, 10000); // Every 10 seconds instead of 3
 
@@ -589,8 +811,6 @@
                 updateLogs();
             }
         });
-        
-
         
         // Initial data load
         updateStats();
@@ -730,6 +950,43 @@
     </div>
 </div>
 
+<!-- Service Control Section -->
+<div class="content-box" style="margin-top: 10px;">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h3 class="panel-title">{{ lang._('Service Control') }}</h3>
+                    </div>
+                    <div class="panel-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <strong>{{ lang._('Service Status') }}:</strong>
+                                <span id="service-status" class="text-muted">{{ lang._('Checking...') }}</span>
+                            </div>
+                            <div class="col-md-9">
+                                <button id="service-start" class="btn btn-success btn-sm" disabled>
+                                    <i class="fa fa-play"></i> {{ lang._('Start') }}
+                                </button>
+                                <button id="service-stop" class="btn btn-danger btn-sm" disabled>
+                                    <i class="fa fa-stop"></i> {{ lang._('Stop') }}
+                                </button>
+                                <button id="service-restart" class="btn btn-warning btn-sm" disabled>
+                                    <i class="fa fa-refresh"></i> {{ lang._('Restart') }}
+                                </button>
+                                <button id="validate-settings" class="btn btn-info btn-sm">
+                                    <i class="fa fa-check-circle"></i> {{ lang._('Validate Settings') }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Statistics & Monitoring Section -->
 <div class="content-box" style="margin-top: 20px;">
     <ul class="nav nav-tabs" data-tabs="tabs" id="abuseipdb-tabs">
@@ -817,7 +1074,7 @@
             </div>
         </div>
 
-        <!-- NEW: All Scanned IPs Tab -->
+        <!-- All Scanned IPs Tab -->
         <div id="allscannedips" class="tab-pane fade">
             <div class="container-fluid">
                 <div class="row">

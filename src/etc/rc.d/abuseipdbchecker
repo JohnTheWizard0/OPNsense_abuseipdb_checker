@@ -69,7 +69,16 @@ abuseipdbchecker_prestart()
         mv /tmp/abuseipdb_temp.log /var/log/abuseipdbchecker/abuseipdb.log
     fi
     
-    echo "AbuseIPDB Checker: Enhanced daemon starting with 15-second batch processing"
+    echo "AbuseIPDB Checker: Starting daemon with automatic alias management"
+    
+    # AUTOMATIC ALIAS CREATION ON STARTUP
+    # Wait a moment for system to be ready, then create/update alias
+    (
+        sleep 5
+        echo "AbuseIPDB: Creating/updating MaliciousIPs alias on startup..."
+        /usr/local/opnsense/scripts/AbuseIPDBChecker/manage_alias.py update >> /var/log/abuseipdbchecker/abuseipdb.log 2>&1
+        echo "AbuseIPDB: Startup alias operation completed"
+    ) &
 }
 
 abuseipdbchecker_poststop()

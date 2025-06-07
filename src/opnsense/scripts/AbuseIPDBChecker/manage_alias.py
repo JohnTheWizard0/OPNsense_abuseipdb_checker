@@ -1,19 +1,21 @@
 #!/usr/local/bin/python3
 
 """
-CORRECTED Alias Management Script for AbuseIPDB Checker
-Using the proper OPNsense alias structure discovered from WebGUI export
+REST API-based Alias Management Script for AbuseIPDB Checker
+Using OPNsense REST API instead of direct config manipulation
 """
 
 import os
 import sys
 import json
 import sqlite3
-import uuid as uuid_module
-import subprocess
-import tempfile
+import requests
+import urllib3
 from datetime import datetime
 from configparser import ConfigParser
+
+# Disable SSL warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Constants
 DB_DIR = '/var/db/abuseipdbchecker'
@@ -30,7 +32,7 @@ def log_message(message):
         
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         with open(LOG_FILE, 'a') as f:
-            f.write(f"[{timestamp}] ALIAS: {message}\n")
+            f.write(f"[{timestamp}] ALIAS-API: {message}\n")
         
         os.chmod(LOG_FILE, 0o666)
     except Exception as e:
@@ -41,13 +43,21 @@ def read_config():
     config = {
         'alias_enabled': True,
         'alias_include_suspicious': False,
-        'alias_max_recent_hosts': 500
+        'alias_max_recent_hosts': 500,
+        'api_key': '',
+        'api_secret': ''
     }
     
     if os.path.exists(CONFIG_FILE):
         try:
             cp = ConfigParser()
             cp.read(CONFIG_FILE)
+            
+            if cp.has_section('general'):
+                if cp.has_option('general', 'ApiKey'):
+                    config['api_key'] = cp.get('general', 'ApiKey')
+                if cp.has_option('general', 'ApiSecret'):
+                    config['api_secret'] = cp.get('general', 'ApiSecret')
             
             if cp.has_section('alias'):
                 if cp.has_option('alias', 'Enabled'):
@@ -102,271 +112,221 @@ def get_threat_ips_from_database(config):
     
     return threat_ips
 
-def execute_php_script(php_code):
-    """Execute PHP code and return result"""
+def make_api_request(method, endpoint, config, data=None):
+    """Make a request to OPNsense API"""
+    base_url = "https://127.0.0.1"
+    url = f"{base_url}{endpoint}"
+    
+    auth = (config['api_key'], config['api_secret'])
+    
     try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.php', delete=False) as f:
-            f.write(php_code)
-            php_file = f.name
+        if method.upper() == 'GET':
+            response = requests.get(url, auth=auth, verify=False, timeout=30)
+        elif method.upper() == 'POST':
+            if data is None:
+                # For reconfigure calls - no JSON data needed
+                response = requests.post(url, auth=auth, verify=False, timeout=30)
+            else:
+                # For data calls - send JSON
+                headers = {'Content-Type': 'application/json'}
+                response = requests.post(url, auth=auth, headers=headers, json=data, verify=False, timeout=30)
+        elif method.upper() == 'PUT':
+            headers = {'Content-Type': 'application/json'}
+            response = requests.put(url, auth=auth, headers=headers, json=data, verify=False, timeout=30)
+        elif method.upper() == 'DELETE':
+            response = requests.delete(url, auth=auth, verify=False, timeout=30)
+        else:
+            raise ValueError(f"Unsupported HTTP method: {method}")
         
-        try:
-            result = subprocess.run([
-                '/usr/local/bin/php', php_file
-            ], capture_output=True, text=True, timeout=30)
+        log_message(f"API {method} {endpoint}: HTTP {response.status_code}")
+        
+        if response.status_code in [200, 201]:
+            return {'status': 'ok', 'data': response.json()}
+        else:
+            return {'status': 'error', 'message': f'HTTP {response.status_code}: {response.text}'}
             
-            log_message(f"PHP execution: exit_code={result.returncode}")
-            if result.stderr:
-                log_message(f"PHP stderr: {result.stderr[:200]}...")
-            
-            return {
-                'exit_code': result.returncode,
-                'stdout': result.stdout,
-                'stderr': result.stderr
-            }
-                
-        finally:
-            try:
-                os.unlink(php_file)
-            except:
-                pass
-                
+    except requests.exceptions.RequestException as e:
+        return {'status': 'error', 'message': f'Request failed: {str(e)}'}
     except Exception as e:
-        log_message(f"Error executing PHP script: {str(e)}")
-        return {
-            'exit_code': 1,
-            'stdout': '',
-            'stderr': str(e)
-        }
+        return {'status': 'error', 'message': f'API error: {str(e)}'}
 
-def create_alias():
-    """Create MaliciousIPs alias with CORRECT OPNsense structure"""
+def find_malicious_ips_alias(config):
+    """Find existing MaliciousIPs alias"""
     try:
-        config = read_config()
-        if not config['alias_enabled']:
-            return {'status': 'disabled', 'message': 'Alias integration is disabled'}
+        result = make_api_request('GET', '/api/firewall/alias/searchItem', config)
         
-        log_message("Creating alias with CORRECT OPNsense structure")
-        
-        # Get threat IPs
-        threat_ips = get_threat_ips_from_database(config)
-        ip_content = '\\n'.join(threat_ips) if threat_ips else '127.0.0.1'
-        
-        # Generate UUID for the alias
-        alias_uuid = str(uuid_module.uuid4())
-        current_timestamp = datetime.now().isoformat()
-        
-        log_message(f"Generated UUID: {alias_uuid}")
-        log_message(f"IP content length: {len(ip_content)} chars, {len(threat_ips)} IPs")
-        
-        php_script = f'''<?php
-require_once '/usr/local/etc/inc/config.inc';
-require_once '/usr/local/etc/inc/util.inc';
-
-try {{
-    $config = config_read_array();
-
-    // Remove any existing MaliciousIPs alias first
-    if (isset($config['aliases']['alias'])) {{
-        foreach ($config['aliases']['alias'] as $uuid => $alias) {{
-            if (isset($alias['name']) && $alias['name'] == 'MaliciousIPs') {{
-                unset($config['aliases']['alias'][$uuid]);
-                echo "REMOVED_EXISTING: $uuid\\n";
-            }}
-        }}
-    }}
-
-    // Initialize aliases section if needed
-    if (!isset($config['aliases']['alias'])) {{
-        $config['aliases']['alias'] = array();
-    }}
-
-    // Create with PROPER OPNsense structure (UUID as KEY, not field)
-    $alias_uuid = '{alias_uuid}';
-    $config['aliases']['alias'][$alias_uuid] = array(
-        'enabled' => '1',
-        'name' => 'MaliciousIPs',
-        'type' => 'host',
-        'path_expression' => '',
-        'proto' => '',
-        'interface' => '',
-        'counters' => '0',
-        'updatefreq' => '',
-        'content' => '{ip_content}',
-        'password' => '',
-        'username' => '',
-        'authtype' => '',
-        'categories' => '',
-        'current_items' => '{len(threat_ips)}',
-        'last_updated' => '{current_timestamp}',
-        'description' => 'AbuseIPDB malicious IPs (auto-managed)'
-    );
-
-    // Save configuration
-    write_config("AbuseIPDB: Created proper MaliciousIPs alias with {len(threat_ips)} IPs");
-
-    // Reload configuration
-    configd_run('template reload OPNsense/Filter');
-    sleep(1);
-    configd_run('filter reload');
-
-    echo "SUCCESS:$alias_uuid:{len(threat_ips)}\\n";
-
-}} catch (Exception $e) {{
-    echo "ERROR:" . $e->getMessage() . "\\n";
-    exit(1);
-}}
-?>'''
-        
-        result = execute_php_script(php_script)
-        
-        # FIX: Check if SUCCESS appears ANYWHERE in stdout, not just at start
-        if result['exit_code'] == 0 and "SUCCESS:" in result['stdout']:
-            # Extract the SUCCESS line specifically
-            success_line = ""
-            for line in result['stdout'].split('\n'):
-                if line.startswith("SUCCESS:"):
-                    success_line = line
-                    break
+        if result['status'] != 'ok':
+            return None
             
-            if success_line:
-                parts = success_line.strip().split(":")
-                uuid = parts[1] if len(parts) > 1 else alias_uuid
-                ip_count = parts[2] if len(parts) > 2 else len(threat_ips)
-                
-                log_message(f"Alias created successfully with UUID: {uuid}")
-                return {
-                    'status': 'ok',
-                    'message': f'MaliciousIPs alias created with proper structure and {ip_count} IPs',
-                    'uuid': uuid,
-                    'ip_count': int(ip_count)
-                }
+        # Search through aliases for MaliciousIPs
+        aliases = result['data'].get('rows', [])
+        for alias in aliases:
+            if alias.get('name') == 'MaliciousIPs':
+                return alias.get('uuid')
         
-        # If we get here, there was an error
-        error_msg = f'Creation failed: {result["stderr"]} | {result["stdout"]}'
-        log_message(error_msg)
-        return {'status': 'error', 'message': error_msg}
-                
+        return None
+        
+    except Exception as e:
+        log_message(f"Error finding alias: {str(e)}")
+        return None
+
+def create_alias(config, threat_ips):
+    """Create MaliciousIPs alias using REST API"""
+    try:
+        alias_data = {
+            "alias": {
+                "enabled": "1",
+                "name": "MaliciousIPs",
+                "type": "host",
+                "content": "\n".join(threat_ips) if threat_ips else "127.0.0.1",
+                "description": f"AbuseIPDB malicious IPs (auto-managed) - {len(threat_ips)} IPs"
+            }
+        }
+        
+        log_message(f"Creating alias with {len(threat_ips)} IPs")
+        
+        # Create the alias
+        result = make_api_request('POST', '/api/firewall/alias/addItem', config, alias_data)
+        
+        if result['status'] != 'ok':
+            return result
+        
+        # Reconfigure firewall to apply changes
+        reconfig_result = make_api_request('POST', '/api/firewall/alias/reconfigure', config, data=None)
+        
+        if reconfig_result['status'] != 'ok':
+            return {'status': 'error', 'message': f'Alias created but reconfigure failed: {reconfig_result["message"]}'}
+        
+        log_message(f"Alias created and configured successfully with {len(threat_ips)} IPs")
+        
+        return {
+            'status': 'ok',
+            'message': f'MaliciousIPs alias created with {len(threat_ips)} IPs',
+            'uuid': result['data'].get('uuid', 'unknown'),
+            'ip_count': len(threat_ips)
+        }
+        
     except Exception as e:
         error_msg = f"Error creating alias: {str(e)}"
         log_message(error_msg)
         return {'status': 'error', 'message': error_msg}
 
-def update_alias():
-    """Update MaliciousIPs alias with proper structure"""
+def update_alias(config, threat_ips):
+    """Update existing MaliciousIPs alias using REST API"""
     try:
-        config = read_config()
-        if not config['alias_enabled']:
-            return {'status': 'disabled', 'message': 'Alias integration is disabled'}
+        # Find existing alias
+        alias_uuid = find_malicious_ips_alias(config)
         
-        log_message("Starting alias update with proper structure")
+        if not alias_uuid:
+            log_message("Alias not found, creating new one")
+            return create_alias(config, threat_ips)
         
-        # Get current threat IPs
-        threat_ips = get_threat_ips_from_database(config)
-        ip_content = '\\n'.join(threat_ips) if threat_ips else ''
-        current_timestamp = datetime.now().isoformat()
+        alias_data = {
+            "alias": {
+                "enabled": "1",
+                "name": "MaliciousIPs",
+                "type": "host", 
+                "content": "\n".join(threat_ips) if threat_ips else "127.0.0.1",
+                "description": f"AbuseIPDB malicious IPs (Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) - {len(threat_ips)} IPs"
+            }
+        }
         
-        php_script = f'''<?php
-require_once '/usr/local/etc/inc/config.inc';
-require_once '/usr/local/etc/inc/util.inc';
-
-try {{
-    $config = config_read_array();
-
-    // Find the MaliciousIPs alias (UUID as key)
-    $alias_found = false;
-    $alias_uuid = null;
-    
-    if (isset($config['aliases']['alias'])) {{
-        foreach ($config['aliases']['alias'] as $uuid => $alias) {{
-            if (isset($alias['name']) && $alias['name'] == 'MaliciousIPs') {{
-                // Update with proper structure
-                $config['aliases']['alias'][$uuid]['content'] = '{ip_content}';
-                $config['aliases']['alias'][$uuid]['current_items'] = '{len(threat_ips)}';
-                $config['aliases']['alias'][$uuid]['last_updated'] = '{current_timestamp}';
-                $config['aliases']['alias'][$uuid]['description'] = 'AbuseIPDB malicious IPs (Updated: ' . date('Y-m-d H:i:s') . ')';
-                
-                $alias_found = true;
-                $alias_uuid = $uuid;
-                break;
-            }}
-        }}
-    }}
-
-    if (!$alias_found) {{
-        echo "NOT_FOUND\\n";
-        exit(1);
-    }}
-
-    // Save configuration
-    write_config("AbuseIPDB: Updated MaliciousIPs alias with {len(threat_ips)} IPs");
-
-    // Reload configuration
-    configd_run('template reload OPNsense/Filter');
-    configd_run('filter reload');
-
-    echo "UPDATED:$alias_uuid:{len(threat_ips)}\\n";
-
-}} catch (Exception $e) {{
-    echo "ERROR:" . $e->getMessage() . "\\n";
-    exit(1);
-}}
-?>'''
+        log_message(f"Updating alias {alias_uuid} with {len(threat_ips)} IPs")
         
-        result = execute_php_script(php_script)
+        # Update the alias
+        result = make_api_request('POST', f'/api/firewall/alias/setItem/{alias_uuid}', config, alias_data)
         
-        if result['exit_code'] == 0:
-            output = result['stdout'].strip()
-            
-            # Check for NOT_FOUND anywhere in output
-            if "NOT_FOUND" in output:
-                log_message("Alias not found, creating new one")
-                return create_alias()
-            # Check for UPDATED anywhere in output  
-            elif "UPDATED:" in output:
-                # Extract the UPDATED line specifically
-                for line in output.split('\n'):
-                    if line.startswith("UPDATED:"):
-                        parts = line.split(":")
-                        uuid = parts[1] if len(parts) > 1 else 'unknown'
-                        ip_count = parts[2] if len(parts) > 2 else len(threat_ips)
-                        log_message(f"Alias updated successfully: UUID={uuid}, IPs={ip_count}")
-                        return {
-                            'status': 'ok',
-                            'message': f'Alias updated with proper structure and {ip_count} IPs',
-                            'uuid': uuid,
-                            'ip_count': int(ip_count)
-                        }
-            
-            log_message(f"Unexpected PHP output: {output}")
-            return {'status': 'error', 'message': f'Unexpected output: {output}'}
-        else:
-            error_msg = f"PHP script failed: {result['stderr']}"
-            log_message(error_msg)
-            return {'status': 'error', 'message': error_msg}
-                
+        if result['status'] != 'ok':
+            return result
+        
+        # Reconfigure firewall to apply changes
+        reconfig_result = make_api_request('POST', '/api/firewall/alias/reconfigure', config, data=None)
+        
+        if reconfig_result['status'] != 'ok':
+            return {'status': 'error', 'message': f'Alias updated but reconfigure failed: {reconfig_result["message"]}'}
+        
+        log_message(f"Alias updated and reconfigured successfully with {len(threat_ips)} IPs")
+        
+        return {
+            'status': 'ok',
+            'message': f'Alias updated with {len(threat_ips)} IPs',
+            'uuid': alias_uuid,
+            'ip_count': len(threat_ips)
+        }
+        
     except Exception as e:
         error_msg = f"Error updating alias: {str(e)}"
         log_message(error_msg)
         return {'status': 'error', 'message': error_msg}
 
-def test_alias():
-    """Test alias functionality with proper structure"""
+def create_alias_main():
+    """Create MaliciousIPs alias"""
     try:
-        log_message("Testing alias functionality with proper structure")
+        config = read_config()
         
-        result = update_alias()
-        log_message(f"Alias test result: {result['status']} - {result.get('message', 'No message')}")
+        if not config['alias_enabled']:
+            return {'status': 'disabled', 'message': 'Alias integration is disabled'}
+        
+        if not config['api_key'] or not config['api_secret']:
+            return {'status': 'error', 'message': 'API credentials not configured. Please set API key and secret in General settings.'}
+        
+        threat_ips = get_threat_ips_from_database(config)
+        return create_alias(config, threat_ips)
+        
+    except Exception as e:
+        error_msg = f"Error in create_alias_main: {str(e)}"
+        log_message(error_msg)
+        return {'status': 'error', 'message': error_msg}
+
+def update_alias_main():
+    """Update MaliciousIPs alias"""
+    try:
+        config = read_config()
+        
+        if not config['alias_enabled']:
+            return {'status': 'disabled', 'message': 'Alias integration is disabled'}
+        
+        if not config['api_key'] or not config['api_secret']:
+            return {'status': 'error', 'message': 'API credentials not configured. Please set API key and secret in General settings.'}
+        
+        threat_ips = get_threat_ips_from_database(config)
+        return update_alias(config, threat_ips)
+        
+    except Exception as e:
+        error_msg = f"Error in update_alias_main: {str(e)}"
+        log_message(error_msg)
+        return {'status': 'error', 'message': error_msg}
+
+def test_alias():
+    """Test alias functionality"""
+    try:
+        config = read_config()
+        
+        if not config['alias_enabled']:
+            return {'status': 'disabled', 'message': 'Alias integration is disabled'}
+        
+        if not config['api_key'] or not config['api_secret']:
+            return {'status': 'error', 'message': 'API credentials not configured'}
+        
+        # Test API connectivity
+        test_result = make_api_request('GET', '/api/firewall/alias/searchItem', config)
+        
+        if test_result['status'] != 'ok':
+            return {'status': 'error', 'message': f'API test failed: {test_result["message"]}'}
+        
+        # Try to update alias
+        result = update_alias_main()
         
         # Get current stats
-        config = read_config()
         threat_count = len(get_threat_ips_from_database(config))
         
         result['test_info'] = {
+            'api_connection': 'OK',
             'config_enabled': config['alias_enabled'],
             'include_suspicious': config['alias_include_suspicious'],
             'max_hosts': config['alias_max_recent_hosts'],
             'current_threat_count': threat_count,
-            'structure': 'CORRECTED - UUID as key with all required fields'
+            'method': 'REST API'
         }
         
         return result
@@ -383,19 +343,19 @@ def main():
             return {'status': 'error', 'message': 'Mode required: create, update, or test'}
         
         mode = sys.argv[1].lower()
-        log_message(f"CORRECTED alias management script started in {mode} mode")
+        log_message(f"REST API alias management script started in {mode} mode")
         
         if mode == 'create':
-            result = create_alias()
+            result = create_alias_main()
         elif mode == 'update':
-            result = update_alias()
+            result = update_alias_main()
         elif mode == 'test':
             result = test_alias()
         else:
             result = {'status': 'error', 'message': f'Invalid mode: {mode}'}
         
         print(json.dumps(result, separators=(',', ':')))
-        log_message(f"CORRECTED alias operation completed: {result['status']}")
+        log_message(f"REST API alias operation completed: {result['status']}")
         
     except Exception as e:
         error_result = {'status': 'error', 'message': f'Script error: {str(e)}'}

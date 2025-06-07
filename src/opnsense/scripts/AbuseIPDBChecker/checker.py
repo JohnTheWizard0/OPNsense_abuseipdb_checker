@@ -198,7 +198,9 @@ def read_config():
         'use_tls': True,
         'alias_enabled': True,
         'alias_include_suspicious': False,
-        'alias_max_recent_hosts': 500
+        'alias_max_recent_hosts': 500,
+        'opnsense_api_key': '',
+        'opnsense_api_secret': ''
     }
     
     # Make sure config directory exists
@@ -227,6 +229,11 @@ def read_config():
                     config['daily_check_limit'] = int(cp.get('general', 'DailyCheckLimit'))
                 if cp.has_option('general', 'IgnoreBlockedConnections'):
                     config['ignore_blocked_connections'] = cp.get('general', 'IgnoreBlockedConnections') == '1'
+                if cp.has_option('general', 'ApiKey'):
+                    config['opnsense_api_key'] = cp.get('general', 'ApiKey')
+                if cp.has_option('general', 'ApiSecret'):
+                    config['opnsense_api_secret'] = cp.get('general', 'ApiSecret')
+
             
             if cp.has_section('network'):
                 if cp.has_option('network', 'LanSubnets'):
@@ -1577,15 +1584,43 @@ def process_ip_batch(ip_batch, config):
 
         if ips_checked > 0:
             try:
-                if config['alias_enabled']:
-                    update_result = update_malicious_ips_alias()
-                    if update_result['status'] == 'ok':
-                        log_message(f"Auto-updated MaliciousIPs alias: {update_result.get('ip_count', 0)} IPs")
+                config = read_config()  # Re-read config to get latest alias settings
+                
+                if config['alias_enabled'] and config.get('api_key') and config.get('api_secret'):
+                    log_message(f"Auto-updating alias: {threats_detected} threats in batch, alias enabled")
+                    
+                    # Call the alias update script directly
+                    import subprocess
+                    result = subprocess.run([
+                        '/usr/local/bin/python3',
+                        '/usr/local/opnsense/scripts/AbuseIPDBChecker/manage_alias.py',
+                        'update'
+                    ], capture_output=True, text=True, timeout=30)
+                    
+                    if result.returncode == 0:
+                        try:
+                            alias_result = json.loads(result.stdout)
+                            if alias_result.get('status') == 'ok':
+                                log_message(f"✓ Alias auto-updated: {alias_result.get('ip_count', 0)} IPs")
+                            else:
+                                log_message(f"Alias update warning: {alias_result.get('message', 'Unknown issue')}")
+                        except json.JSONDecodeError:
+                            log_message(f"Alias update completed: {result.stdout.strip()}")
                     else:
-                        log_message(f"Auto-update alias failed: {update_result['message']}")
+                        log_message(f"Alias update failed: {result.stderr.strip()}")
+                        
+                elif not config['alias_enabled']:
+                    # Only log this occasionally to avoid spam
+                    if threats_detected > 0:
+                        log_message("Threats detected but alias updates disabled in settings")
+                else:
+                    # Only log this occasionally to avoid spam
+                    if threats_detected > 0:
+                        log_message("Threats detected but API credentials missing for alias updates")
+                        
             except Exception as e:
-                log_message(f"Error auto-updating alias: {str(e)}")
-        
+                log_message(f"Error in auto-alias update: {str(e)}")
+
         return {
             'status': 'ok',
             'message': f'Batch processed: {ips_checked} checked, {threats_detected} threats',
@@ -1697,29 +1732,6 @@ def update_malicious_ips_alias():
         log_message(error_msg)
         return {'status': 'error', 'message': error_msg}
 
-def test_alias_functionality():
-    """Test alias functionality using configd action"""
-    try:
-        log_message("Testing alias via configd action")
-        result = subprocess.run([
-            'configctl', 'abuseipdbchecker', 'testalias'
-        ], capture_output=True, text=True, timeout=30)
-        
-        if result.returncode == 0:
-            try:
-                response_data = json.loads(result.stdout)
-                log_message(f"Configd test result: {response_data}")
-                return response_data
-            except json.JSONDecodeError:
-                return {'status': 'error', 'message': f'Invalid JSON response: {result.stdout}'}
-        else:
-            return {'status': 'error', 'message': f'Configd error: {result.stderr}'}
-            
-    except Exception as e:
-        error_msg = f"Error testing alias via configd: {str(e)}"
-        log_message(error_msg)
-        return {'status': 'error', 'message': error_msg}
-
 def main():
     """Main entry point"""
     # First thing: log startup and ensure directories
@@ -1796,10 +1808,6 @@ def main():
             result = update_malicious_ips_alias()
         elif args.mode == 'exportthreats':
             log_message("Exporting threats for alias")
-        elif args.mode == 'testalias':
-            log_message("Testing alias functionality")
-            result = test_alias_functionality()
-            result = export_threats_for_alias()
         elif args.mode == 'daemon':
             # Don't return JSON for daemon mode, just run
             log_message("Starting daemon mode")
