@@ -99,7 +99,6 @@
             updateStats();
         });
 
-        // Enhanced Save button handler with validation
         $("#saveAct").click(function() {
             console.log("Save button clicked");
     
@@ -109,7 +108,7 @@
                 'abuseipdbchecker': {}
             };
             
-            // Extract data from each form (removed email)
+            // Extract data from each form
             ["general", "network", "api", "alias"].forEach(function(section) {
                 var formData = getFormData("frm_" + section);
                 
@@ -118,60 +117,58 @@
                 }
             });
 
-            // Enhanced validation
-            var enabled = $("#abuseipdbchecker\\.general\\.Enabled").prop('checked');
+            // Enhanced validation - Remove enabled check
             var apiKey = $("#abuseipdbchecker\\.api\\.Key").val();
             var dailyLimit = $("#abuseipdbchecker\\.api\\.DailyCheckLimit").val();
             var opnApiKey = $("#abuseipdbchecker\\.general\\.ApiKey").val();
             var opnApiSecret = $("#abuseipdbchecker\\.general\\.ApiSecret").val();
             
-            if (enabled) {
-                if (!apiKey || apiKey === "YOUR_API_KEY") {
-                    $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
-                    BootstrapDialog.show({
-                        type: BootstrapDialog.TYPE_DANGER,
-                        title: "{{ lang._('Validation Error') }}",
-                        message: "{{ lang._('AbuseIPDB API key is required to enable the plugin. Please configure a valid API key in the API tab.') }}"
-                    });
-                    return;
-                }
-                
-                if (dailyLimit && (parseInt(dailyLimit) < 1 || parseInt(dailyLimit) > 1000)) {
-                    $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
-                    BootstrapDialog.show({
-                        type: BootstrapDialog.TYPE_DANGER,
-                        title: "{{ lang._('Validation Error') }}",
-                        message: "{{ lang._('Daily Check Limit must be between 1 and 1000.') }}"
-                    });
-                    return;
-                }
-                
-                if (!opnApiKey || !opnApiSecret) {
-                    $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
-                    BootstrapDialog.show({
-                        type: BootstrapDialog.TYPE_WARNING,
-                        title: "{{ lang._('Warning') }}",
-                        message: "{{ lang._('OPNsense API credentials are missing. The service will work but alias management will be disabled. You can add API credentials later in the General tab.') }}",
-                        buttons: [{
-                            label: "{{ lang._('Continue Anyway') }}",
-                            action: function(dialogRef) {
-                                dialogRef.close();
-                                saveSettings(data);
-                            }
-                        }, {
-                            label: "{{ lang._('Cancel') }}",
-                            action: function(dialogRef) {
-                                dialogRef.close();
-                            }
-                        }]
-                    });
-                    return;
-                }
+            // Always validate since service is running
+            if (!apiKey || apiKey === "YOUR_API_KEY") {
+                $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
+                BootstrapDialog.show({
+                    type: BootstrapDialog.TYPE_DANGER,
+                    title: "{{ lang._('Configuration Error') }}",
+                    message: "{{ lang._('AbuseIPDB API key is required. Please configure a valid API key in the API tab before starting the service.') }}"
+                });
+                return;
+            }
+            
+            if (dailyLimit && (parseInt(dailyLimit) < 1 || parseInt(dailyLimit) > 1000)) {
+                $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
+                BootstrapDialog.show({
+                    type: BootstrapDialog.TYPE_DANGER,
+                    title: "{{ lang._('Configuration Error') }}",
+                    message: "{{ lang._('Daily Check Limit must be between 1 and 1000.') }}"
+                });
+                return;
+            }
+            
+            if (!opnApiKey || !opnApiSecret) {
+                $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
+                BootstrapDialog.show({
+                    type: BootstrapDialog.TYPE_WARNING,
+                    title: "{{ lang._('Warning') }}",
+                    message: "{{ lang._('OPNsense API credentials are missing. The service will work but alias management will be disabled. You can add API credentials later in the General tab.') }}",
+                    buttons: [{
+                        label: "{{ lang._('Continue Anyway') }}",
+                        action: function(dialogRef) {
+                            dialogRef.close();
+                            saveSettings(data);
+                        }
+                    }, {
+                        label: "{{ lang._('Cancel') }}",
+                        action: function(dialogRef) {
+                            dialogRef.close();
+                        }
+                    }]
+                });
+                return;
             }
             
             saveSettings(data);
         });
-        
+
         function saveSettings(data) {
             ajaxCall(
                 "/api/abuseipdbchecker/settings/set",

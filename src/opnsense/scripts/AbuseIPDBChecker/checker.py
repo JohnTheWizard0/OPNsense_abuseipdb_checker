@@ -54,10 +54,12 @@ class AbuseIPDBChecker:
     
     def run_check(self):
         """Run manual IP check from firewall logs"""
-        if not self.config['enabled']:
-            return {'status': 'disabled', 'message': 'AbuseIPDBChecker is disabled'}
         
         log_message("Starting manual IP check operation")
+
+        validation = self.config_manager.validate_config()
+        if validation['errors']:
+            return {'status': 'error', 'message': f"Configuration errors: {', '.join(validation['errors'])}"}
         
         try:
             # Parse firewall logs for external IPs
@@ -132,6 +134,77 @@ class AbuseIPDBChecker:
             'threats_detected': threats_detected
         }
     
+    def validate_configuration(self):
+        """Validate configuration for service startup"""
+        try:
+            validation = self.config_manager.validate_config()
+            
+            # Enhanced validation for service startup
+            config = self.config_manager.get_config()
+            
+            # Check critical requirements
+            critical_errors = []
+            warnings = []
+            
+            # API key validation
+            if not config.get('api_key') or config['api_key'] == 'YOUR_API_KEY':
+                critical_errors.append('AbuseIPDB API key is required')
+            
+            # Threshold validation
+            if config['suspicious_threshold'] >= config['malicious_threshold']:
+                critical_errors.append('Suspicious threshold must be less than malicious threshold')
+            
+            # Daily limit validation
+            if config['daily_check_limit'] < 1 or config['daily_check_limit'] > 1000:
+                critical_errors.append('Daily check limit must be between 1 and 1000')
+            
+            # Log file validation
+            if not os.path.exists(config['log_file']):
+                warnings.append(f"Log file not found: {config['log_file']}")
+            
+            # Database validation
+            if not os.path.exists('/var/db/abuseipdbchecker/abuseipdb.db'):
+                warnings.append('Database not initialized - will be created on first run')
+            
+            # OPNsense API validation (for alias features)
+            if config['alias_enabled']:
+                if not config.get('opnsense_api_key') or not config.get('opnsense_api_secret'):
+                    warnings.append('OPNsense API credentials missing - alias management will be disabled')
+            
+            # Combine all validation results
+            all_errors = validation.get('errors', []) + critical_errors
+            all_warnings = validation.get('warnings', []) + warnings
+            
+            if all_errors:
+                return {
+                    'status': 'error',
+                    'message': f'Configuration validation failed: {", ".join(all_errors)}',
+                    'errors': all_errors,
+                    'warnings': all_warnings
+                }
+            elif all_warnings:
+                return {
+                    'status': 'warning',
+                    'message': f'Configuration has warnings but is usable: {", ".join(all_warnings)}',
+                    'errors': [],
+                    'warnings': all_warnings
+                }
+            else:
+                return {
+                    'status': 'ok',
+                    'message': 'Configuration is valid and ready for service startup',
+                    'errors': [],
+                    'warnings': []
+                }
+                
+        except Exception as e:
+            return {
+                'status': 'error',
+                'message': f'Validation error: {str(e)}',
+                'errors': [str(e)],
+                'warnings': []
+            }
+
     def test_single_ip(self, ip_address):
         """Test a single IP address against AbuseIPDB"""
         log_message(f"Starting test of IP: {ip_address}")
@@ -144,8 +217,9 @@ class AbuseIPDBChecker:
             return {'status': 'error', 'message': f'Invalid IP address format: {ip_address}'}
         
         # Check service status
-        if not self.config['enabled']:
-            return {'status': 'error', 'message': 'AbuseIPDBChecker is disabled in settings'}
+        validation = self.config_manager.validate_config()
+        if validation['errors']:
+            return {'status': 'error', 'message': f"Configuration errors: {', '.join(validation['errors'])}"}
         
         if not self.config['api_key'] or self.config['api_key'] == 'YOUR_API_KEY':
             return {'status': 'error', 'message': 'Please configure a valid API key in the API settings'}
@@ -297,8 +371,12 @@ class AbuseIPDBChecker:
     def list_external_ips(self):
         """List external IPs from firewall logs"""
         try:
-            if not self.config['enabled']:
-                return {'status': 'disabled', 'message': 'AbuseIPDBChecker is disabled'}
+            validation = self.config_manager.validate_config()
+            if validation['errors']:
+                return {
+                    'status': 'error', 
+                    'message': f"Configuration errors: {', '.join(validation['errors'])}"
+                }
             
             parser = FirewallLogParser(self.config)
             external_ips = parser.parse_log_for_ips(recent_only=True)

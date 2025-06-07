@@ -21,7 +21,7 @@ class ConfigManager:
     def _get_default_config(self):
         """Return default configuration values"""
         return {
-            'enabled': False,
+            # Remove 'enabled' from defaults
             'log_file': '/var/log/filter/latest.log',
             'check_frequency': 7,
             'suspicious_threshold': 40,
@@ -52,7 +52,7 @@ class ConfigManager:
             cp = ConfigParser()
             cp.read(CONFIG_FILE)
             
-            # General section
+            # General section - Remove Enabled loading
             if cp.has_section('general'):
                 self._load_general_section(cp)
             
@@ -75,8 +75,7 @@ class ConfigManager:
         """Load general configuration section"""
         section = 'general'
         
-        if cp.has_option(section, 'Enabled'):
-            self._config['enabled'] = cp.get(section, 'Enabled') == '1'
+        # Remove Enabled loading completely
         if cp.has_option(section, 'LogFile'):
             self._config['log_file'] = cp.get(section, 'LogFile')
         if cp.has_option(section, 'CheckFrequency'):
@@ -136,35 +135,36 @@ class ConfigManager:
         return self._config.get(key, default)
     
     def is_enabled(self):
-        """Check if the service is enabled"""
-        return self._config.get('enabled', False)
+        """Service is always enabled when running - remove this check"""
+        return True  # Always return True since service control handles enable/disable
     
     def validate_config(self):
         """Validate configuration and return validation errors"""
         errors = []
         warnings = []
         
-        if self._config['enabled']:
-            # Check API key
-            if not self._config['api_key'] or self._config['api_key'] == 'YOUR_API_KEY':
-                errors.append('AbuseIPDB API key is required')
-            
-            # Check daily limit
-            if self._config['daily_check_limit'] < 1 or self._config['daily_check_limit'] > 1000:
-                errors.append('Daily check limit must be between 1 and 1000')
-            
-            # Check thresholds
-            if self._config['suspicious_threshold'] >= self._config['malicious_threshold']:
-                errors.append('Suspicious threshold must be less than malicious threshold')
-            
-            # Check OPNsense API credentials for alias
-            if self._config['alias_enabled']:
-                if not self._config['opnsense_api_key'] or not self._config['opnsense_api_secret']:
-                    warnings.append('OPNsense API credentials missing - alias management will not work')
-            
-            # Check log file
-            if not os.path.exists(self._config['log_file']):
-                warnings.append(f"Log file not found: {self._config['log_file']}")
+        # Remove enabled check - validation always runs since service is running
+        
+        # Check API key
+        if not self._config['api_key'] or self._config['api_key'] == 'YOUR_API_KEY':
+            errors.append('AbuseIPDB API key is required')
+        
+        # Check daily limit
+        if self._config['daily_check_limit'] < 1 or self._config['daily_check_limit'] > 1000:
+            errors.append('Daily check limit must be between 1 and 1000')
+        
+        # Check thresholds
+        if self._config['suspicious_threshold'] >= self._config['malicious_threshold']:
+            errors.append('Suspicious threshold must be less than malicious threshold')
+        
+        # Check OPNsense API credentials for alias
+        if self._config['alias_enabled']:
+            if not self._config['opnsense_api_key'] or not self._config['opnsense_api_secret']:
+                warnings.append('OPNsense API credentials missing - alias management will not work')
+        
+        # Check log file
+        if not os.path.exists(self._config['log_file']):
+            warnings.append(f"Log file not found: {self._config['log_file']}")
         
         return {'errors': errors, 'warnings': warnings}
     

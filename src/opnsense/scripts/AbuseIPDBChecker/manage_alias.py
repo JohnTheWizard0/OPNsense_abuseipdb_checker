@@ -57,7 +57,7 @@ def get_local_time():
     return datetime.now(LOCAL_TZ)
 
 def format_timestamp(dt=None):
-    """Format timestamp in local timezone"""
+    """Format timestamp in local timezone WITHOUT timezone abbreviation"""
     if dt is None:
         dt = get_local_time()
     elif isinstance(dt, str):
@@ -77,7 +77,8 @@ def format_timestamp(dt=None):
     elif dt.tzinfo != LOCAL_TZ:
         dt = dt.astimezone(LOCAL_TZ)
     
-    return dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+    # Format WITHOUT timezone abbreviation - matches core_utils.py
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
 
 def log_message(message):
     """Log a message to the log file with proper timezone"""
@@ -143,8 +144,6 @@ def get_threat_ips_from_database(config):
         min_threat_level = 1 if config['alias_include_suspicious'] else 2
         max_hosts = config['alias_max_recent_hosts']
         
-        log_message(f"Querying threats with min_level={min_threat_level}, max_hosts={max_hosts}")
-        
         c.execute('''
         SELECT t.ip, t.abuse_score
         FROM threats t
@@ -168,7 +167,7 @@ def get_threat_ips_from_database(config):
     return threat_ips
 
 def make_api_request(method, endpoint, config, data=None):
-    """Make a request to OPNsense API"""
+    """Make a request to OPNsense API - REDUCED LOGGING"""
     base_url = "https://127.0.0.1"
     url = f"{base_url}{endpoint}"
     
@@ -193,7 +192,9 @@ def make_api_request(method, endpoint, config, data=None):
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
         
-        log_message(f"API {method} {endpoint}: HTTP {response.status_code}")
+        # REMOVED VERBOSE API LOGGING - only log errors
+        if response.status_code not in [200, 201]:
+            log_message(f"API {method} {endpoint}: HTTP {response.status_code} - {response.text}")
         
         if response.status_code in [200, 201]:
             return {'status': 'ok', 'data': response.json()}
@@ -238,7 +239,7 @@ def create_alias(config, threat_ips):
             }
         }
         
-        log_message(f"Creating alias with {len(threat_ips)} IPs")
+        log_message(f"Creating MaliciousIPs alias with {len(threat_ips)} IPs")
         
         # Create the alias
         result = make_api_request('POST', '/api/firewall/alias/addItem', config, alias_data)
@@ -252,7 +253,7 @@ def create_alias(config, threat_ips):
         if reconfig_result['status'] != 'ok':
             return {'status': 'error', 'message': f'Alias created but reconfigure failed: {reconfig_result["message"]}'}
         
-        log_message(f"Alias created and configured successfully with {len(threat_ips)} IPs")
+        log_message(f"✓ MaliciousIPs alias created and applied: {len(threat_ips)} IPs")
         
         return {
             'status': 'ok',
@@ -273,7 +274,7 @@ def update_alias(config, threat_ips):
         alias_uuid = find_malicious_ips_alias(config)
         
         if not alias_uuid:
-            log_message("Alias not found, creating new one")
+            log_message("MaliciousIPs alias not found, creating new one")
             return create_alias(config, threat_ips)
         
         alias_data = {
@@ -282,11 +283,9 @@ def update_alias(config, threat_ips):
                 "name": "MaliciousIPs",
                 "type": "host", 
                 "content": "\n".join(threat_ips) if threat_ips else "127.0.0.1",
-                "description": f"AbuseIPDB malicious IPs (Updated: {format_timestamp()}) - {len(threat_ips)} IPs"
+                "description": f"AbuseIPDB malicious IPs - {len(threat_ips)} IPs (Updated: {format_timestamp()})"
             }
         }
-        
-        log_message(f"Updating alias {alias_uuid} with {len(threat_ips)} IPs")
         
         # Update the alias
         result = make_api_request('POST', f'/api/firewall/alias/setItem/{alias_uuid}', config, alias_data)
@@ -300,7 +299,7 @@ def update_alias(config, threat_ips):
         if reconfig_result['status'] != 'ok':
             return {'status': 'error', 'message': f'Alias updated but reconfigure failed: {reconfig_result["message"]}'}
         
-        log_message(f"Alias updated and reconfigured successfully with {len(threat_ips)} IPs")
+        log_message(f"✓ MaliciousIPs alias updated and applied: {len(threat_ips)} IPs")
         
         return {
             'status': 'ok',
@@ -398,7 +397,6 @@ def main():
             return {'status': 'error', 'message': 'Mode required: create, update, or test'}
         
         mode = sys.argv[1].lower()
-        log_message(f"REST API alias management script started in {mode} mode")
         
         if mode == 'create':
             result = create_alias_main()
@@ -410,12 +408,11 @@ def main():
             result = {'status': 'error', 'message': f'Invalid mode: {mode}'}
         
         print(json.dumps(result, separators=(',', ':')))
-        log_message(f"REST API alias operation completed: {result['status']}")
         
     except Exception as e:
         error_result = {'status': 'error', 'message': f'Script error: {str(e)}'}
         print(json.dumps(error_result, separators=(',', ':')))
-        log_message(f"Script error: {str(e)}")
+        log_message(f"Alias management error: {str(e)}")
 
 if __name__ == '__main__':
     main()

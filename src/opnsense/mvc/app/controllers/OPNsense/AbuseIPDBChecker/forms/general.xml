@@ -1,10 +1,5 @@
 <form>
-    <field>
-        <id>abuseipdbchecker.general.Enabled</id>
-        <label>Enable AbuseIPDB Checker</label>
-        <type>checkbox</type>
-        <help>Enable the AbuseIPDB Checker service</help>
-    </field>
+    <!-- Remove the Enabled checkbox entirely -->
     <field>
         <id>abuseipdbchecker.general.LogFile</id>
         <label>Log File Path</label>

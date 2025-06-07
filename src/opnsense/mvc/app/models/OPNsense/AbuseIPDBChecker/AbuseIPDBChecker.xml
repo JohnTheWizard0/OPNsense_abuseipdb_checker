@@ -5,11 +5,7 @@
     <version>1.0.0</version>
     <items>
         <general>
-            <Enabled type="BooleanField">
-                <default>0</default>
-                <Required>N</Required>
-                <description>Enable AbuseIPDB Checker</description>
-            </Enabled>
+            <!-- Enabled field REMOVED -->
             <LogFile type="TextField">
                 <default>/var/log/filter/latest.log</default>
                 <Required>N</Required>

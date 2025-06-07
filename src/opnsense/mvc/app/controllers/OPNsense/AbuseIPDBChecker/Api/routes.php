@@ -9,6 +9,7 @@ $router->addRoute('/abuseipdbchecker/service/status', 'OPNsense\AbuseIPDBChecker
 $router->addRoute('/abuseipdbchecker/service/start', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'startAction');
 $router->addRoute('/abuseipdbchecker/service/stop', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'stopAction');
 $router->addRoute('/abuseipdbchecker/service/restart', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'restartAction');
+$router->addRoute('/abuseipdbchecker/service/validate', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'validateAction');
 $router->addRoute('/abuseipdbchecker/service/stats', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'statsAction');
 $router->addRoute('/abuseipdbchecker/service/threats', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'threatsAction');
 $router->addRoute('/abuseipdbchecker/service/logs', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'logsAction');

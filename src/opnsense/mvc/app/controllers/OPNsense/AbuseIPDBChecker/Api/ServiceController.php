@@ -13,17 +13,57 @@ class ServiceController extends ApiMutableServiceControllerBase
     protected static $internalServiceName = 'abuseipdbchecker';
 
     /**
-     * start abuseipdbchecker service
+     * validate configuration before service start
+     */
+    public function validateAction()
+    {
+        $result = array("status" => "failed");
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $response = $backend->configdRun("abuseipdbchecker validate");
+            $bckresult = json_decode(trim($response), true);
+            if ($bckresult !== null) {
+                return $bckresult;
+            }
+        }
+        return ["status" => "failed", "message" => "Unable to validate configuration"];
+    }
+
+    /**
+     * start abuseipdbchecker service WITH PRE-VALIDATION
      */
     public function startAction()
     {
         $result = array("result" => "failed");
         if ($this->request->isPost()) {
             $backend = new Backend();
+            
+            // STEP 1: Validate configuration before starting
+            $validation_response = $backend->configdRun("abuseipdbchecker validate");
+            $validation_result = json_decode(trim($validation_response), true);
+            
+            if ($validation_result && $validation_result['status'] === 'error') {
+                return array(
+                    "result" => "failed",
+                    "status" => "validation_error",
+                    "message" => "Configuration validation failed: " . $validation_result['message']
+                );
+            }
+            
+            if ($validation_result && isset($validation_result['errors']) && !empty($validation_result['errors'])) {
+                return array(
+                    "result" => "failed", 
+                    "status" => "validation_error",
+                    "message" => "Configuration errors must be fixed before starting: " . implode(', ', $validation_result['errors'])
+                );
+            }
+            
+            // STEP 2: Start service only if validation passes
             $response = $backend->configdRun("abuseipdbchecker start");
             if (strpos($response, "OK") !== false || strpos($response, "Starting") !== false || strpos($response, "started") !== false) {
                 $result['result'] = "OK";
                 $result['status'] = "ok";
+                $result['message'] = "Service started successfully";
             } else {
                 $result['message'] = trim($response);
             }

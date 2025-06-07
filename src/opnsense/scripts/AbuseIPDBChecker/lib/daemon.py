@@ -41,7 +41,7 @@ class DaemonManager:
         log_message(f"Received signal {signum}, stopping daemon gracefully")
         self.running = False
         sys.exit(0)
-    
+
     def _run_daemon_loop(self):
         """Main daemon loop with batch collection and processing"""
         ip_collection = set()
@@ -61,8 +61,17 @@ class DaemonManager:
                 
                 config = self.config_manager.get_config()
                 
-                if not config['enabled']:
-                    log_message("Service disabled, sleeping...")
+                # REMOVE this enabled check - service is enabled by being started
+                # if not config['enabled']:
+                #     log_message("Service disabled, sleeping...")
+                #     time.sleep(self.poll_interval)
+                #     continue
+                
+                # Validate critical configuration before processing
+                validation = self.config_manager.validate_config()
+                if validation['errors']:
+                    log_message(f"Configuration errors detected: {', '.join(validation['errors'])}")
+                    log_message("Skipping processing until configuration is fixed")
                     time.sleep(self.poll_interval)
                     continue
                 
@@ -97,7 +106,7 @@ class DaemonManager:
                 time.sleep(self.poll_interval)
         
         log_message("AbuseIPDB Checker daemon shutting down")
-    
+
     def _collect_external_ips(self, config):
         """Collect external IPs from firewall logs"""
         try:
@@ -153,11 +162,11 @@ class DaemonManager:
                 self._auto_update_alias(config, result['new_threats_detected'])
             
             return result
-        
+            
         except Exception as e:
             log_message(f"Error in process_ip_batch: {str(e)}")
             return {'status': 'error', 'message': f'Batch processing error: {str(e)}'}
-
+    
     def _filter_ips_for_checking(self, ip_batch, config):
         """Filter IPs that need to be checked based on frequency"""
         ips_to_check = []
@@ -235,7 +244,7 @@ class DaemonManager:
             'new_threats_detected': new_threats_detected,  # Add this field
             'message': f'Batch processed: {ips_checked} checked, {threats_detected} threats ({new_threats_detected} new)'
         }
-
+    
     def _extract_categories(self, report):
         """Extract categories from API report"""
         categories = ''
