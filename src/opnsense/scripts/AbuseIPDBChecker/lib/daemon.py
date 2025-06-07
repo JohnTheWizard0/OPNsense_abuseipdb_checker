@@ -108,7 +108,7 @@ class DaemonManager:
         except Exception as e:
             log_message(f"Error collecting IPs: {str(e)}")
             return set()
-    
+
     def _process_ip_batch(self, ip_batch, config):
         """Process a batch of collected IPs"""
         if not ip_batch:
@@ -148,16 +148,16 @@ class DaemonManager:
             # Update statistics
             self._update_batch_stats(result)
             
-            # Auto-update alias if threats detected
-            if result['threats_detected'] > 0:
-                self._auto_update_alias(config, result['threats_detected'])
+            # Auto-update alias ONLY if NEW threats detected
+            if result.get('new_threats_detected', 0) > 0:
+                self._auto_update_alias(config, result['new_threats_detected'])
             
             return result
-            
+        
         except Exception as e:
             log_message(f"Error in process_ip_batch: {str(e)}")
             return {'status': 'error', 'message': f'Batch processing error: {str(e)}'}
-    
+
     def _filter_ips_for_checking(self, ip_batch, config):
         """Filter IPs that need to be checked based on frequency"""
         ips_to_check = []
@@ -173,7 +173,7 @@ class DaemonManager:
             ips_to_check.append(ip)
         
         return ips_to_check
-    
+
     def _check_ips_with_api(self, ips_to_check, config):
         """Check IPs against AbuseIPDB API"""
         # Import locally to avoid circular imports
@@ -181,11 +181,16 @@ class DaemonManager:
         
         api_client = AbuseIPDBClient(config)
         threats_detected = 0
+        new_threats_detected = 0  # Track NEW threats only
         ips_checked = 0
         
         for ip in ips_to_check:
             try:
                 log_message(f"Checking IP: {ip}")
+                
+                # Check if IP was previously a threat
+                existing_threat = self.db_manager.get_threat(ip)
+                was_threat = existing_threat is not None
                 
                 # Check against AbuseIPDB
                 report = api_client.check_ip(ip)
@@ -203,9 +208,17 @@ class DaemonManager:
                         categories = self._extract_categories(report)
                         self.db_manager.update_threat(ip, abuse_score, report.get('totalReports', 0), categories, country)
                         threats_detected += 1
-                        log_message(f"🚨 THREAT DETECTED: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)})")
+                        
+                        # Only count as NEW threat if it wasn't a threat before
+                        if not was_threat:
+                            new_threats_detected += 1
+                            log_message(f"🚨 NEW THREAT DETECTED: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)})")
+                        else:
+                            log_message(f"Updated existing threat: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)})")
                     else:
                         # Remove from threats if now safe
+                        if was_threat:
+                            log_message(f"IP now safe (removed from threats): {ip}")
                         self.db_manager.remove_threat(ip)
                     
                     ips_checked += 1
@@ -219,9 +232,10 @@ class DaemonManager:
             'status': 'ok',
             'ips_checked': ips_checked,
             'threats_detected': threats_detected,
-            'message': f'Batch processed: {ips_checked} checked, {threats_detected} threats'
+            'new_threats_detected': new_threats_detected,  # Add this field
+            'message': f'Batch processed: {ips_checked} checked, {threats_detected} threats ({new_threats_detected} new)'
         }
-    
+
     def _extract_categories(self, report):
         """Extract categories from API report"""
         categories = ''
@@ -241,19 +255,18 @@ class DaemonManager:
             
             from .core_utils import get_db_timestamp
             self.db_manager.update_stat('last_check', get_db_timestamp())
-    
-    def _auto_update_alias(self, config, threats_count):
-        """Automatically update alias if threats detected and configured"""
+
+    def _auto_update_alias(self, config, new_threats_count):
+        """Automatically update alias when NEW threats detected"""
         try:
             if not config['alias_enabled']:
                 return
             
             if not config.get('opnsense_api_key') or not config.get('opnsense_api_secret'):
-                if threats_count > 0:  # Only log for actual threats
-                    log_message("Threats detected but API credentials missing for alias updates")
+                log_message("New threats detected but API credentials missing for alias updates")
                 return
             
-            log_message(f"Auto-updating alias: {threats_count} threats in batch")
+            log_message(f"Auto-updating alias: {new_threats_count} NEW threats detected")
             
             # Call the alias update script
             result = subprocess.run([
@@ -276,7 +289,7 @@ class DaemonManager:
                 
         except Exception as e:
             log_message(f"Error in auto-alias update: {str(e)}")
-    
+
     def _log_batch_result(self, result):
         """Log batch processing results"""
         if result['status'] == 'ok':

@@ -79,30 +79,15 @@ def format_timestamp(dt=None):
     
     return dt.strftime('%Y-%m-%d %H:%M:%S %Z')
 
-# Update the log_message function to use proper timezone
 def log_message(message):
     """Log a message to the log file with proper timezone"""
     try:
         if not os.path.exists(LOG_DIR):
             os.makedirs(LOG_DIR, mode=0o755)
         
-        timestamp = format_timestamp()  # Use the new timezone-aware function
+        timestamp = format_timestamp()
         with open(LOG_FILE, 'a') as f:
-            f.write(f"[{timestamp}] ALIAS-API: {message}\n")
-        
-        os.chmod(LOG_FILE, 0o666)
-    except Exception as e:
-        print(f"Error writing to log: {str(e)}", file=sys.stderr)
-
-def log_message(message):
-    """Log a message to the log file"""
-    try:
-        if not os.path.exists(LOG_DIR):
-            os.makedirs(LOG_DIR, mode=0o755)
-        
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        with open(LOG_FILE, 'a') as f:
-            f.write(f"[{timestamp}] ALIAS-API: {message}\n")
+            f.write(f"[{timestamp}] {message}\n")
         
         os.chmod(LOG_FILE, 0o666)
     except Exception as e:

@@ -47,7 +47,7 @@ class TimezoneManager:
         return datetime.now(self.local_tz)
     
     def format_timestamp(self, dt=None):
-        """Format timestamp in local timezone"""
+        """Format timestamp in local timezone without abbreviation"""
         if dt is None:
             dt = self.get_local_time()
         elif isinstance(dt, str):
@@ -67,7 +67,8 @@ class TimezoneManager:
         elif dt.tzinfo != self.local_tz:
             dt = dt.astimezone(self.local_tz)
         
-        return dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+        # Format without timezone abbreviation
+        return dt.strftime('%Y-%m-%d %H:%M:%S')
     
     def get_db_timestamp(self):
         """Get timestamp for database storage"""

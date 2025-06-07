@@ -1,100 +1,298 @@
-# AbuseIPDB Checker Plugin Documentation
+ AbuseIPDB Checker Plugin Documentation
 
-## Project Overview
+ Project Overview
 
-The **AbuseIPDB Checker** is an OPNsense plugin that monitors external IP addresses attempting to connect to your internal network and checks them against the AbuseIPDB reputation database to identify potential threats.
+The AbuseIPDB Checker is a production-ready OPNsense plugin that provides automated threat detection by monitoring external IP addresses attempting to connect to your internal network and checking them against the AbuseIPDB reputation database. The plugin features a sophisticated modular architecture, real-time alias management, and comprehensive web interface.
 
-## Core Architecture
+ Architecture Overview
 
-### 1. **MVC Structure**
-- **Model**: `AbuseIPDBChecker.xml` - Configuration schema with sections for general, network, api, and email settings
-- **View**: `index.volt` - Multi-tab interface for configuration, statistics, threats, logs, and IP testing
-- **Controller**: Multiple controllers handling different aspects (IndexController, ServiceController, SettingsController)
+ 1. Modular Python Backend Architecture
+The plugin implements a compartmentalized design with separate modules for better maintainability, debugging, and error isolation:
 
-### 2. **Key Components**
+Core Library Structure (`src/opnsense/scripts/AbuseIPDBChecker/lib/`):
+- `core_utils.py` - Timezone handling, logging, directory management, threat classification
+- `config_manager.py` - Configuration reading, validation, and management
+- `database.py` - SQLite database operations with connection management
+- `api_client.py` - AbuseIPDB API client with rate limiting and error handling
+- `log_parser.py` - Firewall log parsing and IP extraction
+- `statistics.py` - Statistics collection, reporting, and data export
+- `daemon.py` - Daemon operations, batch processing, and automated updates
+- `__init__.py` - Module initialization and dependency management
 
-#### **Configuration Management**
-- **Location**: `/usr/local/etc/abuseipdbchecker/abuseipdbchecker.conf`
-- **Template**: `src/opnsense/service/templates/OPNsense/AbuseIPDBChecker/abuseipdbchecker.conf`
-- **Sections**: general, network, api, email settings
-- **Default Values**: 7-day check frequency, 80% threat threshold, 100 daily API calls limit
+Main Orchestrator:
+- `checker.py` - Primary entry point that coordinates all operations
 
-#### **Core Script**
-- **Main Script**: `src/opnsense/scripts/AbuseIPDBChecker/checker.py`
-- **Database Setup**: `src/opnsense/scripts/AbuseIPDBChecker/setup_database.py`
-- **Database Location**: `/var/db/abuseipdbchecker/abuseipdb.db` (SQLite)
-- **Log Location**: `/var/log/abuseipdbchecker/abuseipdb.log`
+Alias Management:
+- `manage_alias.py` - REST API-based alias management system
 
-#### **Database Schema**
-- **checked_ips**: Tracks all IPs checked with timestamps and threat status
-- **threats**: Detailed information about malicious IPs
-- **stats**: System statistics (daily checks, total checks, last check time)
+ 2. MVC Framework Integration
 
-#### **Service Integration**
-- **RC Script**: `/usr/local/etc/rc.d/abuseipdbchecker`
-- **Plugin Registration**: `/usr/local/etc/inc/plugins.inc.d/abuseipdbchecker.inc`
-- **Configd Actions**: `actions_abuseipdbchecker.conf` with start/stop/status/run/stats/threats/logs/testip/initdb
+Model (`src/opnsense/mvc/app/models/OPNsense/AbuseIPDBChecker/`):
+- `AbuseIPDBChecker.xml` - Configuration schema with validation rules
+- `AbuseIPDBChecker.php` - Model class extending BaseModel
+- `Menu/Menu.xml` - Service menu integration
+- `ACL/ACL.xml` - Access control definitions
 
-### 3. **Data Flow Process**
+Controllers (`src/opnsense/mvc/app/controllers/OPNsense/AbuseIPDBChecker/`):
+- `IndexController.php` - Main web interface controller
+- `Api/ServiceController.php` - Service management API endpoints
+- `Api/SettingsController.php` - Configuration management endpoints
+- `Api/routes.php` - API routing configuration
 
-1. **Hourly Cron Job** → Triggers checker script
-2. **Log Parsing** → Analyzes `/var/log/filter.log` for external IPs
-3. **Database Check** → Verifies if IP was recently checked (respects check frequency)
-4. **API Query** → Checks new IPs against AbuseIPDB (respects daily limits)
-5. **Threat Assessment** → Compares abuse score against threshold
-6. **Email Notification** → Sends alerts for detected threats
-7. **Database Storage** → Updates IP records and statistics
+Views (`src/opnsense/mvc/app/views/OPNsense/AbuseIPDBChecker/`):
+- `index.volt` - Multi-tab web interface with real-time updates
 
-### 4. **Web Interface Features**
+Forms (`src/opnsense/mvc/app/controllers/OPNsense/AbuseIPDBChecker/forms/`):
+- `general.xml` - General settings form
+- `network.xml` - Network configuration form
+- `api.xml` - API settings form
+- `alias.xml` - Alias management form
 
-#### **Settings Tabs**
-- **General**: Enable/disable, log file path, check frequency, score threshold, daily limits
-- **Network**: LAN subnets to monitor, ignored protocols
-- **API**: AbuseIPDB API key, endpoint, max age for reports
-- **Email**: SMTP configuration for threat notifications
+ 3. Service Integration Framework
 
-#### **Monitoring Tabs**
-- **Statistics**: Total IPs checked, threats detected, daily usage, last run time
-- **Recent Threats**: Table of detected malicious IPs with scores and details
-- **Logs**: Real-time log viewer with refresh capability
-- **Test IP**: Manual IP testing interface with detailed results
+Service Management:
+- `src/etc/rc.d/abuseipdbchecker` - RC script with daemon management
+- `src/etc/inc/plugins.inc.d/abuseipdbchecker.inc` - Plugin registration
+- `src/opnsense/service/conf/actions.d/actions_abuseipdbchecker.conf` - Configd actions
 
-### 5. **API Endpoints**
+Configuration Templates:
+- `src/opnsense/service/templates/OPNsense/AbuseIPDBChecker/` - Template system
+- `+TARGETS` - Template deployment targets
+- `abuseipdbchecker.conf` - Configuration file template
 
-#### **Service Controller** (`/api/abuseipdbchecker/service/`)
-- `status` - Service status
-- `start/stop/restart` - Service control
+ 4. Database Architecture
+
+SQLite Database (`/var/db/abuseipdbchecker/abuseipdb.db`):
+
+Tables:
+- `checked_ips` - All checked IPs with three-tier classification
+  - `ip` (PRIMARY KEY)
+  - `first_seen`, `last_checked`
+  - `check_count`
+  - `threat_level` (0=Safe, 1=Suspicious, 2=Malicious)
+  - `country`
+
+- `threats` - Detailed threat information
+  - `ip` (PRIMARY KEY, FOREIGN KEY)
+  - `abuse_score`, `reports`
+  - `last_seen`, `categories`
+  - `country`, `threat_level`
+
+- `stats` - System statistics
+  - `key`, `value` pairs for tracking usage
+
+Migration Support: Automatic schema updates with backward compatibility
+
+ 5. Three-Tier Threat Classification System
+
+Classification Levels:
+- Level 0 (Safe): Score < Suspicious Threshold (default: 40%)
+- Level 1 (Suspicious): Score ≥ Suspicious Threshold, < Malicious Threshold (default: 40-69%)
+- Level 2 (Malicious): Score ≥ Malicious Threshold (default: ≥70%)
+
+Configurable Thresholds: Administrators can adjust thresholds based on security requirements
+
+Alias Integration: Option to include suspicious IPs in firewall aliases
+
+ 6. Advanced Web Interface
+
+Multi-Tab Design:
+
+Configuration Tabs:
+- General: Core settings, thresholds, OPNsense API credentials
+- Network: LAN subnet definitions, protocol filtering
+- API: AbuseIPDB API configuration, rate limits
+- Alias: Automatic alias management settings
+- Test IP: Manual IP testing interface
+
+Monitoring Tabs:
+- Statistics: Real-time usage statistics with breakdown
+- External IPs: Live view of detected external IPs from firewall logs
+- All Scanned IPs: Complete database with three-tier classification
+- Recent Threats: Malicious IP detections with details
+- Logs: Real-time log viewer with filtering
+
+Real-Time Features:
+- Automatic refresh capabilities
+- Live service status monitoring
+- Interactive IP testing
+- Country flag display with fallback handling
+
+ 7. Daemon Mode & Batch Processing
+
+Daemon Architecture:
+- Continuous Monitoring: Polls firewall logs every 2.5 seconds
+- Batch Collection: Collects unique IPs over 15-second intervals
+- Intelligent Processing: Filters IPs based on check frequency and daily limits
+- Automatic Alias Updates: Updates firewall aliases when threats detected
+
+Batch Processing Features:
+- Rate Limiting: Respects AbuseIPDB API limits
+- Daily Quotas: Configurable daily check limits
+- Smart Filtering: Avoids redundant checks based on configuration
+- Error Recovery: Graceful handling of API failures
+
+ 8. REST API-Based Alias Management
+
+Modern Approach: Uses OPNsense REST API instead of direct configuration manipulation
+
+Alias Features:
+- Automatic Creation: Creates "MaliciousIPs" alias automatically
+- Dynamic Updates: Real-time updates when threats detected
+- Configurable Scope: Include suspicious IPs optionally
+- Size Limits: Configurable maximum hosts (default: 500)
+- Priority Sorting: Orders by abuse score and detection time
+
+API Endpoints:
+- `/api/firewall/alias/` - Standard OPNsense alias management
+- Authentication via API key/secret pairs
+
+ 9. Comprehensive API Endpoints
+
+Service Controller (`/api/abuseipdbchecker/service/`):
+- `status` - Service status and PID information
+- `start/stop/restart` - Service lifecycle management
 - `run` - Manual check execution
-- `stats` - Usage statistics
-- `threats` - Recent threats list
-- `logs` - Log retrieval
-- `testip` - Single IP testing
-- `initdb` - Database initialization
+- `stats` - Usage statistics with breakdown
+- `threats` - Recent threat detections
+- `logs` - Real-time log retrieval with filtering
+- `testip` - Single IP testing with full details
+- `listips` - External IP detection from firewall logs
+- `allips` - Complete IP database with classification
+- `batchstatus` - Daemon batch processing status
+- `updatealias` - Manual alias updates
+- `exportthreats` - Threat data export
 
-#### **Settings Controller** (`/api/abuseipdbchecker/settings/`)
-- `get` - Retrieve configuration
-- `set` - Save configuration
+Settings Controller (`/api/abuseipdbchecker/settings/`):
+- `get` - Configuration retrieval
+- `set` - Configuration updates with validation
 
-### 6. **Security Features**
+ 10. Advanced Logging & Monitoring
 
-- **Rate Limiting**: Respects AbuseIPDB API limits with daily check quotas
-- **Efficient Caching**: SQLite database prevents redundant API calls
-- **Configurable Thresholds**: Adjustable abuse score thresholds
-- **Network Filtering**: Monitors only external IPs, ignores internal traffic
-- **Protocol Filtering**: Configurable protocol exclusions (ICMP, IGMP by default)
+Structured Logging:
+- Timezone-Aware: Proper local timezone handling
+- Categorized Messages: Different log levels and categories
+- Error Handling: Graceful degradation with fallback to syslog
+- Log Rotation: Automatic log management
 
-### 7. **Installation & Deployment**
+Real-Time Monitoring:
+- Service Status: Live daemon monitoring
+- API Usage: Daily quota tracking
+- Threat Detection: Real-time threat notifications
+- Performance Metrics: Processing statistics
 
-- **Package Structure**: Standard OPNsense plugin format with Makefile
-- **Post-Install**: Automated directory creation, permission setting, service registration
-- **Dependencies**: Python3, requests library, SQLite3
-- **Service Integration**: Full OPNsense service framework integration
+ 11. Security Features
 
-### 8. **Logging & Monitoring**
+Rate Limiting & Quotas:
+- API Respect: 500ms minimum between requests
+- Daily Limits: Configurable daily API usage
+- Batch Processing: Efficient IP checking
+- Error Handling: Graceful API failure recovery
 
-- **Comprehensive Logging**: All operations logged with timestamps
-- **Error Handling**: Graceful degradation with informative error messages
-- **Statistics Tracking**: Daily/total usage counters
-- **Real-time Monitoring**: Web interface provides live status updates
+Network Security:
+- External-Only Monitoring: Only processes external→internal traffic
+- Protocol Filtering: Configurable protocol exclusions
+- Subnet Awareness: Intelligent LAN/WAN detection
+- Connection Analysis: Detailed traffic flow analysis
 
-This plugin represents a production-ready security monitoring solution that efficiently integrates with OPNsense's architecture while providing comprehensive threat detection capabilities through the AbuseIPDB reputation service.
+ 12. Configuration Management
+
+Template System: Uses OPNsense's template engine for configuration generation
+
+Default Configuration:
+```ini
+[general]
+Enabled=0
+LogFile=/var/log/filter/latest.log
+CheckFrequency=7
+SuspiciousThreshold=40
+MaliciousThreshold=70
+IgnoreBlockedConnections=1
+
+[network]
+LanSubnets=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12
+IgnoreProtocols=icmp,igmp
+
+[api]
+Key=YOUR_API_KEY
+Endpoint=https://api.abuseipdb.com/api/v2/check
+MaxAge=90
+DailyCheckLimit=1000
+
+[alias]
+Enabled=1
+IncludeSuspicious=0
+MaxRecentHosts=500
+```
+
+Validation System: Comprehensive input validation with user-friendly error messages
+
+ 13. Installation & Deployment
+
+Package Structure: Standard OPNsense plugin format
+- Makefile: Package build configuration
+- pkg-descr: Package description
+- post_install.sh: Post-installation setup script
+
+Automated Setup:
+- Directory creation with proper permissions
+- Service registration and startup configuration
+- Database initialization with migration support
+- Symlink creation for script accessibility
+
+Dependencies: Python3, requests library, SQLite3 (built into OPNsense)
+
+ 14. Error Handling & Recovery
+
+Modular Error Isolation: Each module handles its own errors gracefully
+
+API Error Handling:
+- Authentication failures with clear messages
+- Rate limiting detection and backoff
+- Connection timeouts with retries
+- Invalid response handling
+
+Database Error Recovery:
+- Automatic schema migration
+- Connection pooling with proper cleanup
+- Transaction safety with rollback
+- Corruption detection and repair
+
+ 15. Performance Optimization
+
+Efficient Database Operations:
+- Indexed queries for performance
+- Connection reuse and pooling
+- Batch operations where possible
+- Statistics caching
+
+Memory Management:
+- Streaming log file reading
+- Limited result sets
+- Garbage collection awareness
+- Resource cleanup
+
+Network Optimization:
+- Connection reuse for API calls
+- Compression support where available
+- Timeout management
+- Retry logic with exponential backoff
+
+ Integration Points
+
+ Firewall Integration
+- Log Analysis: Parses standard OPNsense filterlog format
+- Alias System: Creates/updates firewall aliases automatically
+- Rule Integration: Aliases can be used in any firewall rule
+
+ Service Framework
+- Plugin System: Full integration with OPNsense plugin architecture
+- Menu System: Appears in Services menu
+- ACL Integration: Proper permission management
+- HA Sync: Supports High Availability synchronization
+
+ API Integration
+- REST API: Modern RESTful interface
+- Authentication: Standard OPNsense API key/secret
+- Error Handling: Comprehensive error responses
+- Documentation: Self-documenting API structure
