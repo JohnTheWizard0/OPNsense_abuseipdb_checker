@@ -1647,187 +1647,6 @@ def get_batch_status():
             'message': f'Error getting batch status: {str(e)}'
         }
 
-def create_malicious_ips_alias():
-    """Create MaliciousIPs alias using correct OPNsense structure"""
-    try:
-        import subprocess
-        import tempfile
-        
-        log_message("Creating MaliciousIPs alias with correct OPNsense format")
-        
-        php_script = '''<?php
-require_once '/usr/local/etc/inc/config.inc';
-require_once '/usr/local/etc/inc/util.inc';
-
-$config = config_read_array();
-
-// Check if alias already exists
-$alias_exists = false;
-if (isset($config['aliases']['alias'])) {
-    foreach ($config['aliases']['alias'] as $alias) {
-        if ($alias['name'] == 'MaliciousIPs') {
-            $alias_exists = true;
-            break;
-        }
-    }
-}
-
-if ($alias_exists) {
-    echo "EXISTS";
-    exit(0);
-}
-
-// Initialize aliases section if it doesn't exist
-if (!isset($config['aliases'])) {
-    $config['aliases'] = array();
-}
-if (!isset($config['aliases']['alias'])) {
-    $config['aliases']['alias'] = array();
-}
-
-// Create new alias with CORRECT OPNsense structure
-$new_alias = array(
-    'name' => 'MaliciousIPs',
-    'type' => 'host',
-    'proto' => '',
-    'interface' => '',
-    'address' => '',
-    'descr' => 'Automatically maintained list of malicious IPs detected by AbuseIPDB Checker',
-    'detail' => ''
-);
-
-$config['aliases']['alias'][] = $new_alias;
-
-// Save configuration
-write_config("AbuseIPDB Checker: Created MaliciousIPs alias");
-
-// Force reload firewall filter
-configd_run('filter reload');
-
-echo "CREATED";
-?>'''
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.php', delete=False) as f:
-            f.write(php_script)
-            php_file = f.name
-        
-        try:
-            result = subprocess.run([
-                '/usr/local/bin/php', php_file
-            ], capture_output=True, text=True, timeout=30)
-            
-            if result.returncode == 0:
-                output = result.stdout.strip()
-                if output == "EXISTS":
-                    return {'status': 'ok', 'message': 'MaliciousIPs alias already exists'}
-                elif output == "CREATED":
-                    log_message("MaliciousIPs alias created with correct format")
-                    return {'status': 'ok', 'message': 'MaliciousIPs alias created successfully'}
-                else:
-                    return {'status': 'error', 'message': f'Unexpected output: {output}'}
-            else:
-                return {'status': 'error', 'message': f'PHP script failed: {result.stderr}'}
-                
-        finally:
-            try:
-                os.unlink(php_file)
-            except:
-                pass
-                
-    except Exception as e:
-        log_message(f"Error creating alias: {str(e)}")
-        return {'status': 'error', 'message': f'Error creating alias: {str(e)}'}
-
-def update_malicious_ips_alias():
-    """Update MaliciousIPs alias with correct error handling"""
-    try:
-        import subprocess
-        import tempfile
-        
-        config = read_config()
-        
-        if not config['alias_enabled']:
-            return {'status': 'disabled', 'message': 'Alias integration is disabled'}
-        
-        # Get threat IPs from database
-        threat_ips = get_threat_ips_from_database(config)
-        ip_content = '\\n'.join(threat_ips) if threat_ips else ''
-        
-        log_message(f"Updating MaliciousIPs alias with {len(threat_ips)} IPs")
-        
-        php_script = f'''<?php
-require_once '/usr/local/etc/inc/config.inc';
-require_once '/usr/local/etc/inc/util.inc';
-
-$config = config_read_array();
-
-// Find and update the MaliciousIPs alias
-$alias_found = false;
-if (isset($config['aliases']['alias'])) {{
-    foreach ($config['aliases']['alias'] as &$alias) {{
-        if ($alias['name'] == 'MaliciousIPs') {{
-            $alias['address'] = '{ip_content}';
-            $alias_found = true;
-            break;
-        }}
-    }}
-}}
-
-if (!$alias_found) {{
-    echo "ALIAS_NOT_FOUND";
-    exit(1);
-}}
-
-// Save configuration
-write_config("AbuseIPDB Checker: Updated MaliciousIPs alias with {len(threat_ips)} IPs");
-
-// Force reload firewall filter
-configd_run('filter reload');
-
-echo "UPDATED";
-?>'''
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.php', delete=False) as f:
-            f.write(php_script)
-            php_file = f.name
-        
-        try:
-            result = subprocess.run([
-                '/usr/local/bin/php', php_file
-            ], capture_output=True, text=True, timeout=30)
-            
-            if result.returncode == 0:
-                output = result.stdout.strip()
-                if output == "UPDATED":
-                    log_message(f"MaliciousIPs alias updated with {len(threat_ips)} IPs")
-                    return {
-                        'status': 'ok',
-                        'message': f'Alias updated with {len(threat_ips)} IPs',
-                        'ip_count': len(threat_ips)
-                    }
-                elif output == "ALIAS_NOT_FOUND":
-                    # Try to create it first
-                    create_result = create_malicious_ips_alias()
-                    if create_result['status'] == 'ok':
-                        # Retry update
-                        return update_malicious_ips_alias()
-                    else:
-                        return create_result
-                else:
-                    return {'status': 'error', 'message': f'Update failed: {output}'}
-            else:
-                return {'status': 'error', 'message': f'PHP script failed: {result.stderr}'}
-                
-        finally:
-            try:
-                os.unlink(php_file)
-            except:
-                pass
-                
-    except Exception as e:
-        log_message(f"Error updating alias: {str(e)}")
-        return {'status': 'error', 'message': f'Error updating alias: {str(e)}'}
-    
 def get_threat_ips_from_database(config):
     """Get threat IPs from database based on configuration"""
     threat_ips = []
@@ -1864,6 +1683,79 @@ def get_threat_ips_from_database(config):
         log_message(f"Error getting threat IPs from database: {str(e)}")
     
     return threat_ips
+
+def create_malicious_ips_alias():
+    """Create MaliciousIPs alias using configd action"""
+    try:
+        log_message("Creating alias via configd action")
+        result = subprocess.run([
+            'configctl', 'abuseipdbchecker', 'createalias'
+        ], capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            try:
+                response_data = json.loads(result.stdout)
+                log_message(f"Configd create result: {response_data}")
+                return response_data
+            except json.JSONDecodeError:
+                return {'status': 'error', 'message': f'Invalid JSON response: {result.stdout}'}
+        else:
+            return {'status': 'error', 'message': f'Configd error: {result.stderr}'}
+            
+    except Exception as e:
+        error_msg = f"Error creating alias via configd: {str(e)}"
+        log_message(error_msg)
+        return {'status': 'error', 'message': error_msg}
+
+def update_malicious_ips_alias():
+    """Update MaliciousIPs alias using configd action"""
+    try:
+        config = read_config()
+        if not config['alias_enabled']:
+            return {'status': 'disabled', 'message': 'Alias integration is disabled'}
+        
+        log_message("Updating alias via configd action")
+        result = subprocess.run([
+            'configctl', 'abuseipdbchecker', 'updatealias'
+        ], capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            try:
+                response_data = json.loads(result.stdout)
+                log_message(f"Configd update result: {response_data}")
+                return response_data
+            except json.JSONDecodeError:
+                return {'status': 'error', 'message': f'Invalid JSON response: {result.stdout}'}
+        else:
+            return {'status': 'error', 'message': f'Configd error: {result.stderr}'}
+            
+    except Exception as e:
+        error_msg = f"Error updating alias via configd: {str(e)}"
+        log_message(error_msg)
+        return {'status': 'error', 'message': error_msg}
+
+def test_alias_functionality():
+    """Test alias functionality using configd action"""
+    try:
+        log_message("Testing alias via configd action")
+        result = subprocess.run([
+            'configctl', 'abuseipdbchecker', 'testalias'
+        ], capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            try:
+                response_data = json.loads(result.stdout)
+                log_message(f"Configd test result: {response_data}")
+                return response_data
+            except json.JSONDecodeError:
+                return {'status': 'error', 'message': f'Invalid JSON response: {result.stdout}'}
+        else:
+            return {'status': 'error', 'message': f'Configd error: {result.stderr}'}
+            
+    except Exception as e:
+        error_msg = f"Error testing alias via configd: {str(e)}"
+        log_message(error_msg)
+        return {'status': 'error', 'message': error_msg}
 
 def main():
     """Main entry point"""
@@ -1941,6 +1833,9 @@ def main():
             result = update_malicious_ips_alias()
         elif args.mode == 'exportthreats':
             log_message("Exporting threats for alias")
+        elif args.mode == 'testalias':
+            log_message("Testing alias functionality")
+            result = test_alias_functionality()
             result = export_threats_for_alias()
         elif args.mode == 'daemon':
             # Don't return JSON for daemon mode, just run
