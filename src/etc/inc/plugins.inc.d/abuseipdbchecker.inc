@@ -35,8 +35,8 @@ function abuseipdbchecker_setup() {
         mwexec("/usr/local/opnsense/scripts/AbuseIPDBChecker/setup_database.py");
     }
     
-    // Create MaliciousIPs alias if it doesn't exist
-    mwexec("/usr/local/opnsense/scripts/AbuseIPDBChecker/checker.py createalias");
+    // Create MaliciousIPs alias using new native API approach
+    mwexec("configctl abuseipdbchecker createalias");
     
     return true;
 }
