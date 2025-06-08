@@ -56,32 +56,14 @@ class StatisticsManager:
             return {'status': 'error', 'message': f'Error retrieving statistics: {str(e)}'}
 
     def get_recent_threats(self, limit=20, offset=0, search_ip='', include_marked_safe=True):
-        """Get recent threats - FIXED for sqlite3.Row objects"""
+        """Get recent threats - CLEANED UP, database now returns proper dicts"""
         try:
             result = self.db.get_recent_threats(limit, offset, search_ip, include_marked_safe)
             
-            threats = []
-            for row in result['threats']:
-                # Convert sqlite3.Row to dict for safe access
-                row_dict = dict(row) if hasattr(row, 'keys') else row
-                
-                threat_data = {
-                    'ip': row_dict.get('ip') or 'Unknown',
-                    'score': row_dict.get('abuse_score') or 0,
-                    'reports': row_dict.get('reports') or 0,
-                    'last_seen': row_dict.get('last_seen') or 'Never',
-                    'country': row_dict.get('country') or 'Unknown',
-                    'categories': row_dict.get('categories') or '',
-                    'connection_details': row_dict.get('connection_details') or '',
-                    'marked_safe': bool(row_dict.get('marked_safe')) if row_dict.get('marked_safe') is not None else False,
-                    'marked_safe_date': row_dict.get('marked_safe_date') or '',
-                    'marked_safe_by': row_dict.get('marked_safe_by') or ''
-                }
-                threats.append(threat_data)
-            
+            # Database layer now returns proper dictionaries, no conversion needed
             return {
                 'status': 'ok',
-                'threats': threats,
+                'threats': result['threats'],
                 'total_count': result.get('total_count', 0),
                 'limit': limit,
                 'offset': offset,
@@ -101,36 +83,17 @@ class StatisticsManager:
             }
 
     def get_all_checked_ips(self, limit=20, offset=0, search_ip=''):
-        """Get all checked IPs - FIXED for sqlite3.Row objects"""
+        """Get all checked IPs - CLEANED UP, database now returns proper dicts"""
         try:
             result = self.db.get_all_checked_ips(limit, offset, search_ip)
             
-            ips = []
-            for row in result['ips']:
-                # Convert sqlite3.Row to dict for safe access
-                row_dict = dict(row) if hasattr(row, 'keys') else row
-                
-                threat_level = row_dict.get('threat_level') or 0
-                ip_data = {
-                    'ip': row_dict.get('ip') or 'Unknown',
-                    'last_checked': row_dict.get('last_checked') or 'Never',
-                    'threat_level': threat_level,
-                    'threat_text': get_threat_level_text(threat_level),
-                    'check_count': row_dict.get('check_count') or 0,
-                    'abuse_score': row_dict.get('abuse_score') or 0,
-                    'reports': row_dict.get('reports') or 0,
-                    'country': row_dict.get('country') or 'Unknown',
-                    'categories': row_dict.get('categories') or '',
-                    'connection_details': row_dict.get('connection_details') or '',
-                    'marked_safe': bool(row_dict.get('marked_safe')) if row_dict.get('marked_safe') is not None else False,
-                    'marked_safe_date': row_dict.get('marked_safe_date') or '',
-                    'marked_safe_by': row_dict.get('marked_safe_by') or ''
-                }
-                ips.append(ip_data)
+            # Database layer now returns proper dictionaries, just add threat text
+            for ip_data in result['ips']:
+                ip_data['threat_text'] = get_threat_level_text(ip_data['threat_level'])
             
             return {
                 'status': 'ok',
-                'ips': ips,
+                'ips': result['ips'],
                 'total_count': result.get('total_count', 0),
                 'limit': limit,
                 'offset': offset,

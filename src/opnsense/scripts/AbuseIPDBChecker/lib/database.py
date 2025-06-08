@@ -306,7 +306,7 @@ class DatabaseManager:
         )
 
     def get_recent_threats(self, limit=20, offset=0, search_ip='', include_marked_safe=True):
-        """Get recent threats with pagination and search - COMPATIBILITY FIX"""
+        """Get recent threats with pagination and search - FIXED sqlite3.Row conversion"""
         try:
             # First check if connection_details column exists
             conn = self.get_connection()
@@ -385,8 +385,25 @@ class DatabaseManager:
             
             results = self.execute_query(query, params, fetch_all=True)
             
+            # Convert sqlite3.Row objects to proper dictionaries
+            threats_list = []
+            for row in results:
+                threat_dict = {
+                    'ip': row['ip'],
+                    'abuse_score': row['abuse_score'],
+                    'reports': row['reports'],
+                    'last_seen': row['last_seen'],
+                    'country': row['country'],
+                    'categories': row['categories'],
+                    'marked_safe': bool(row['marked_safe']) if row['marked_safe'] is not None else False,
+                    'marked_safe_date': row['marked_safe_date'] or '',
+                    'marked_safe_by': row['marked_safe_by'] or '',
+                    'connection_details': row['connection_details'] or ''
+                }
+                threats_list.append(threat_dict)
+            
             return {
-                'threats': results,
+                'threats': threats_list,
                 'total_count': total_count,
                 'limit': limit,
                 'offset': offset
@@ -397,7 +414,7 @@ class DatabaseManager:
             return {'threats': [], 'total_count': 0, 'limit': limit, 'offset': offset}
 
     def get_all_checked_ips(self, limit=20, offset=0, search_ip=''):
-        """Get all checked IPs with pagination and search - COMPATIBILITY FIX"""
+        """Get all checked IPs with pagination and search - FIXED sqlite3.Row conversion"""
         try:
             # First check if connection_details column exists
             conn = self.get_connection()
@@ -472,8 +489,27 @@ class DatabaseManager:
             
             results = self.execute_query(query, params, fetch_all=True)
             
+            # Convert sqlite3.Row objects to proper dictionaries
+            ips_list = []
+            for row in results:
+                ip_dict = {
+                    'ip': row['ip'],
+                    'last_checked': row['last_checked'],
+                    'threat_level': row['threat_level'] or 0,
+                    'check_count': row['check_count'],
+                    'country': row['country'],
+                    'connection_details': row['connection_details'] or '',
+                    'abuse_score': row['abuse_score'] or 0,
+                    'reports': row['reports'] or 0,
+                    'categories': row['categories'] or '',
+                    'marked_safe': bool(row['marked_safe']) if row['marked_safe'] is not None else False,
+                    'marked_safe_date': row['marked_safe_date'] or '',
+                    'marked_safe_by': row['marked_safe_by'] or ''
+                }
+                ips_list.append(ip_dict)
+            
             return {
-                'ips': results,
+                'ips': ips_list,
                 'total_count': total_count,
                 'limit': limit,
                 'offset': offset
