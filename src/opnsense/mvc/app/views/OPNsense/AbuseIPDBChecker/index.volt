@@ -82,21 +82,6 @@
             }
         }
         
-        // Helper function to format port information
-        function formatPortInfo(portInfo) {
-            if (!portInfo || portInfo === '') {
-                return '<span class="text-muted">N/A</span>';
-            }
-            
-            // Handle multiple ports
-            var ports = portInfo.split(',');
-            if (ports.length > 3) {
-                return ports.slice(0, 3).join(', ') + ' <span class="text-muted">(+' + (ports.length - 3) + ' more)</span>';
-            }
-            
-            return portInfo;
-        }
-        
         // Helper function to create pagination controls
         function createPaginationControls(containerId, pagination, onPageClick) {
             var container = $('#' + containerId);
@@ -287,7 +272,30 @@
             });
         }
 
-        // Enhanced updateThreats with pagination and search
+        // Centralized event binding functions
+        function bindThreatActionButtons() {
+            $('.mark-safe-btn').click(function() {
+                markIpSafe($(this).data('ip'));
+            });
+            
+            $('.unmark-safe-btn').click(function() {
+                unmarkIpSafe($(this).data('ip'));
+            });
+            
+            $('.remove-ip-btn').click(function() {
+                removeIpFromThreats($(this).data('ip'));
+            });
+        }
+        
+        function bindConnectionInfoButtons() {
+            $('.connection-info-btn').click(function() {
+                var ip = $(this).data('ip');
+                var connectionDetails = $(this).data('connection-details');
+                showConnectionDetails(ip, connectionDetails);
+            });
+        }
+
+        // Enhanced updateThreats - ALWAYS shows connection button
         function updateThreats(page = null, search = null) {
             if (page !== null) currentPages.threats = page;
             if (search !== null) currentSearch.threats = search;
@@ -310,7 +318,7 @@
                     threatTable.empty();
                     
                     if (data.threats.length === 0) {
-                        threatTable.append('<tr><td colspan="7">{{ lang._("No threats found") }}</td></tr>');
+                        threatTable.append('<tr><td colspan="6">{{ lang._("No threats found") }}</td></tr>');
                     } else {
                         $("#threats-info").removeClass("alert-info alert-danger")
                             .addClass("alert-success")
@@ -326,7 +334,13 @@
                                 row.addClass('info');
                             }
                             
-                            row.append($('<td>').text(threat.ip));
+                            // IP Address with connection info button - ALWAYS show button
+                            var ipCell = $('<td>');
+                            var connectionDetails = threat.connection_details || '';
+                            var connectionButton = createConnectionInfoButton(threat.ip, connectionDetails);
+                            var ipContent = threat.ip + ' ' + connectionButton;
+                            ipCell.html(ipContent);
+                            row.append(ipCell);
                             
                             var statusCell = $('<td>');
                             statusCell.html(getThreatStatusBadge(threat.threat_level, threat.score, threat.marked_safe));
@@ -334,7 +348,6 @@
                             
                             row.append($('<td>').text(threat.last_seen));
                             row.append($('<td>').html(getCountryDisplay(threat.country)));
-                            row.append($('<td>').html(formatPortInfo(threat.destination_port)));
                             row.append($('<td>').text(threat.reports || 0));
                             
                             var actionsCell = $('<td>');
@@ -356,18 +369,9 @@
                             threatTable.append(row);
                         });
                         
-                        // Bind action button events
-                        $('.mark-safe-btn').click(function() {
-                            markIpSafe($(this).data('ip'));
-                        });
-                        
-                        $('.unmark-safe-btn').click(function() {
-                            unmarkIpSafe($(this).data('ip'));
-                        });
-                        
-                        $('.remove-ip-btn').click(function() {
-                            removeIpFromThreats($(this).data('ip'));
-                        });
+                        // Bind all event handlers
+                        bindThreatActionButtons();
+                        bindConnectionInfoButtons();
                         
                         // Create pagination controls
                         if (data.pagination) {
@@ -381,7 +385,7 @@
                         .addClass("alert-danger")
                         .text(data.message || "{{ lang._('Error retrieving threats') }}")
                         .show();
-                    $("#recent-threats-table").append('<tr><td colspan="7">{{ lang._("Error loading threats") }}</td></tr>');
+                    $("#recent-threats-table").append('<tr><td colspan="6">{{ lang._("Error loading threats") }}</td></tr>');
                 }
             }).fail(function() {
                 console.log('Threats update failed');
@@ -392,7 +396,7 @@
             });
         }
 
-        // Enhanced updateAllScannedIPs with pagination and search
+        // Enhanced updateAllScannedIPs - ALWAYS shows connection button
         function updateAllScannedIPs(page = null, search = null) {
             if (page !== null) currentPages.allscannedips = page;
             if (search !== null) currentSearch.allscannedips = search;
@@ -414,7 +418,7 @@
                     ipTable.empty();
                     
                     if (data.ips.length === 0) {
-                        ipTable.append('<tr><td colspan="7">{{ lang._("No IPs have been scanned yet") }}</td></tr>');
+                        ipTable.append('<tr><td colspan="6">{{ lang._("No IPs have been scanned yet") }}</td></tr>');
                     } else {
                         $("#all-scanned-ips-info").removeClass("alert-info alert-danger")
                             .addClass("alert-success")
@@ -430,7 +434,13 @@
                                 row.addClass('info');
                             }
                             
-                            row.append($('<td>').text(ipData.ip));
+                            // IP Address with connection info button - ALWAYS show button
+                            var ipCell = $('<td>');
+                            var connectionDetails = ipData.connection_details || '';
+                            var connectionButton = createConnectionInfoButton(ipData.ip, connectionDetails);
+                            var ipContent = ipData.ip + ' ' + connectionButton;
+                            ipCell.html(ipContent);
+                            row.append(ipCell);
                             
                             var statusCell = $('<td>');
                             statusCell.html(getThreatStatusBadge(ipData.threat_level, ipData.abuse_score, ipData.marked_safe));
@@ -438,7 +448,6 @@
                             
                             row.append($('<td>').text(ipData.last_checked));
                             row.append($('<td>').html(getCountryDisplay(ipData.country)));
-                            row.append($('<td>').html(formatPortInfo(ipData.destination_port)));
                             row.append($('<td>').text(ipData.reports || 0));
                             
                             var actionsCell = $('<td>');
@@ -451,12 +460,15 @@
                             ipTable.append(row);
                         });
                         
+                        // Bind all event handlers
                         $('.test-ip-btn').click(function() {
                             var ip = $(this).data('ip');
                             $("#ipToTest").val(ip);
                             $('a[href="#testip"]').tab('show');
                             $("#testIpBtn").click();
                         });
+                        
+                        bindConnectionInfoButtons();
                         
                         // Create pagination controls
                         if (data.pagination) {
@@ -470,7 +482,7 @@
                         .addClass("alert-danger")
                         .text(data.message || "{{ lang._('Error retrieving scanned IPs') }}")
                         .show();
-                    $("#all-scanned-ips-table").append('<tr><td colspan="7">{{ lang._("Error loading scanned IPs") }}</td></tr>');
+                    $("#all-scanned-ips-table").append('<tr><td colspan="6">{{ lang._("Error loading scanned IPs") }}</td></tr>');
                 }
             }).fail(function() {
                 console.log('All scanned IPs update failed');
@@ -480,7 +492,7 @@
                     .show();
             });
         }
-        
+
         // Search functionality
         $('#threats-search').on('keyup', function() {
             var searchTerm = $(this).val().trim();
@@ -506,6 +518,76 @@
             $('.selectpicker').selectpicker('refresh');
             updateStats();
         });
+
+        // Helper function to format connection details for popup
+        function formatConnectionDetails(connectionDetails) {
+            if (!connectionDetails || connectionDetails === '') {
+                return '<span class="text-muted">No connection details available</span>';
+            }
+            
+            // Split by pipe separator and format each connection
+            var connections = connectionDetails.split('|');
+            var formatted = connections.map(function(conn) {
+                return '<div class="connection-detail">' + conn + '</div>';
+            }).join('');
+            
+            return formatted;
+        }
+        
+        // Helper function to create connection info button
+        function createConnectionInfoButton(ip, connectionDetails) {
+            var buttonId = 'conn-btn-' + ip.replace(/\./g, '-');
+            var hasData = connectionDetails && connectionDetails !== '';
+            var buttonClass = hasData ? 'btn btn-xs btn-info' : 'btn btn-xs btn-secondary';
+            var title = hasData ? 'View connection details' : 'No connection data available';
+            var dataAttr = hasData ? connectionDetails : 'NO_DATA';
+            
+            return '<button class="' + buttonClass + ' connection-info-btn" ' +
+                   'data-ip="' + ip + '" ' +
+                   'data-connection-details="' + dataAttr + '" ' +
+                   'id="' + buttonId + '" ' +
+                   'title="' + title + '">' +
+                   '<i class="fa fa-info-circle"></i>' +
+                   '</button>';
+        }
+        
+        // Connection details popup handler
+        function showConnectionDetails(ip, connectionDetails) {
+            var content;
+            var dialogType = BootstrapDialog.TYPE_INFO;
+            
+            if (!connectionDetails || connectionDetails === '' || connectionDetails === 'NO_DATA') {
+                content = '<div class="connection-details-popup">' +
+                         '<div class="alert alert-warning">' +
+                         '<i class="fa fa-exclamation-triangle"></i> ' +
+                         '{{ lang._("No connection data available for this IP.") }}<br>' +
+                         '<small class="text-muted">{{ lang._("This IP was checked before connection tracking was implemented.") }}</small>' +
+                         '</div>' +
+                         '</div>';
+                dialogType = BootstrapDialog.TYPE_WARNING;
+            } else {
+                var formattedDetails = formatConnectionDetails(connectionDetails);
+                content = '<div class="connection-details-popup">' +
+                         '<h5>{{ lang._("Source → Destination Connections:") }}</h5>' +
+                         formattedDetails +
+                         '<div class="text-muted" style="margin-top: 15px;">' +
+                         '<small><i class="fa fa-info-circle"></i> {{ lang._("Shows external IP connections to your internal network") }}</small>' +
+                         '</div>' +
+                         '</div>';
+            }
+            
+            BootstrapDialog.show({
+                type: dialogType,
+                title: "{{ lang._('Connection Details for ') }}" + ip,
+                message: content,
+                buttons: [{
+                    label: "{{ lang._('Close') }}",
+                    action: function(dialogRef) {
+                        dialogRef.close();
+                    }
+                }]
+            });
+        }
 
         // Save Settings Function
         $("#saveAct").click(function() {
@@ -1077,6 +1159,62 @@
         width: 100%;
         max-width: 300px;
     }
+
+    /* Add this CSS to index.volt <style> section */
+
+    .connection-info-btn {
+        margin-left: 5px;
+        padding: 2px 6px;
+        font-size: 11px;
+    }
+
+    .connection-details-popup {
+        max-width: 500px;
+    }
+
+    .connection-details-popup h5 {
+        margin-bottom: 15px;
+        color: #333;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 5px;
+    }
+
+    .connection-detail {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 3px;
+        padding: 8px 12px;
+        margin-bottom: 5px;
+        font-family: monospace;
+        font-size: 12px;
+        color: #495057;
+    }
+
+    .connection-detail:last-child {
+        margin-bottom: 0;
+    }
+
+    /* Enhanced table styling */
+    .table th .fa-info-circle {
+        margin-left: 5px;
+        cursor: help;
+    }
+
+    .btn-secondary {
+        background-color: #6c757d;
+        border-color: #6c757d;
+        color: #fff;
+    }
+
+    .btn-secondary:hover {
+        background-color: #5a6268;
+        border-color: #545b62;
+    }
+
+    .alert-warning i {
+        margin-right: 8px;
+    }
+
 </style>
     
 <!-- Main Settings Tabs -->
@@ -1306,7 +1444,7 @@
                         <button id="refreshAllScannedIPs" class="btn btn-xs btn-primary pull-right">
                             <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
                         </button>
-                        <p class="text-muted">{{ lang._('All IPs checked against AbuseIPDB with ports they tried to access') }}</p>
+                        <p class="text-muted">{{ lang._('All IPs checked against AbuseIPDB with connection details') }}</p>
                     </div>
                 </div>
                 <div class="row">
@@ -1317,11 +1455,10 @@
                         <table class="table table-striped table-condensed">
                             <thead>
                                 <tr>
-                                    <th>{{ lang._('IP Address') }}</th>
+                                    <th>{{ lang._('IP Address') }} <i class="fa fa-info-circle text-muted" title="Click info button next to IP to view connection details"></i></th>
                                     <th>{{ lang._('Status') }}</th>
                                     <th>{{ lang._('Last Checked') }}</th>
                                     <th>{{ lang._('Country') }}</th>
-                                    <th>{{ lang._('Ports Accessed') }}</th>
                                     <th>{{ lang._('Reports') }}</th>
                                     <th>{{ lang._('Actions') }}</th>
                                 </tr>
@@ -1335,7 +1472,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Enhanced Recent Threats Tab -->
         <div id="threats" class="tab-pane fade">
             <div class="container-fluid">
@@ -1360,11 +1497,10 @@
                         <table class="table table-striped table-condensed">
                             <thead>
                                 <tr>
-                                    <th>{{ lang._('IP Address') }}</th>
+                                    <th>{{ lang._('IP Address') }} <i class="fa fa-info-circle text-muted" title="Click info button next to IP to view connection details"></i></th>
                                     <th>{{ lang._('Status') }}</th>
                                     <th>{{ lang._('Last Checked') }}</th>
                                     <th>{{ lang._('Country') }}</th>
-                                    <th>{{ lang._('Ports Accessed') }}</th>
                                     <th>{{ lang._('Reports') }}</th>
                                     <th>{{ lang._('Actions') }}</th>
                                 </tr>

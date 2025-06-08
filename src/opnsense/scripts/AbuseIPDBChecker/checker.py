@@ -63,7 +63,7 @@ class AbuseIPDBChecker:
         try:
             # Parse firewall logs for external IPs with ports
             parser = FirewallLogParser(self.config)
-            external_connections = parser.parse_log_for_ips_with_ports()
+            external_connections = parser.parse_log_for_ips_with_connections()
             
             if not external_connections:
                 self.db_manager.update_stat('last_check', get_db_timestamp())
@@ -78,7 +78,7 @@ class AbuseIPDBChecker:
             
             # Initialize API client and process IPs
             api_client = AbuseIPDBClient(self.config)
-            result = self._process_manual_check_with_ports(external_connections, api_client)
+            result = self._process_manual_check_with_connections(external_connections, api_client)
             
             log_message(f"Manual check completed: {result['ips_checked']} checked, {result['threats_detected']} threats")
             return result
@@ -87,16 +87,16 @@ class AbuseIPDBChecker:
             error_msg = f'Error during manual check: {str(e)}'
             log_message(error_msg)
             return {'status': 'error', 'message': error_msg}
-    
-    def _process_manual_check_with_ports(self, external_connections, api_client):
-        """Process IPs for manual check with port information"""
+
+    def _process_manual_check_with_connections(self, external_connections, api_client):
+        """Process IPs for manual check with connection information"""
         threats_detected = 0
         ips_checked = 0
         
         daily_checks = int(self.db_manager.get_stat('daily_checks', '0'))
         daily_limit = self.config['daily_check_limit']
         
-        for ip, ports in external_connections.items():
+        for ip, connections in external_connections.items():
             if daily_checks >= daily_limit:
                 break
             
@@ -109,7 +109,10 @@ class AbuseIPDBChecker:
                 # Check against API
                 report = api_client.check_ip(ip)
                 if report:
-                    result = self._process_ip_result_with_ports(ip, report, list(ports))
+                    connection_strings = list(connections) if isinstance(connections, set) else connections
+                    connection_details = '|'.join(connection_strings[:10])  # Limit to 10 connections
+                    
+                    result = self._process_ip_result_with_connections(ip, report, connection_details)
                     if result['is_threat']:
                         threats_detected += 1
                     ips_checked += 1
@@ -132,16 +135,15 @@ class AbuseIPDBChecker:
             'ips_checked': ips_checked,
             'threats_detected': threats_detected
         }
-    
-    def _process_ip_result_with_ports(self, ip, report, ports):
-        """Process API result and update database with port information"""
+
+    def _process_ip_result_with_connections(self, ip, report, connection_details):
+        """Process API result and update database with connection information"""
         abuse_score = report.get('abuseConfidenceScore', 0)
         threat_level = classify_threat_level(abuse_score, self.config)
         country = report.get('countryCode', 'Unknown')
-        destination_port = ','.join(ports) if ports else ''
         
-        # Update checked_ips table with port info
-        self.db_manager.update_checked_ip(ip, threat_level, country, destination_port)
+        # Update checked_ips table with connection info
+        self.db_manager.update_checked_ip(ip, threat_level, country, connection_details)
         
         # Handle threats
         is_threat = False
@@ -158,7 +160,7 @@ class AbuseIPDBChecker:
             'abuse_score': abuse_score,
             'is_threat': is_threat
         }
-    
+
     def remove_ip_from_threats(self, ip_address):
         """Remove IP from threats table completely"""
         log_message(f"Request to remove IP from threats: {ip_address}")
@@ -261,79 +263,103 @@ class AbuseIPDBChecker:
             error_msg = f"Error unmarking IP {ip_address} as safe: {str(e)}"
             log_message(error_msg)
             return {'status': 'error', 'message': error_msg}
-    
+
     def get_recent_threats(self, limit=20, offset=0, search_ip='', include_marked_safe=True):
-        """Get recent threats with pagination and search"""
+        """Get recent threats - FIXED for sqlite3.Row objects"""
         try:
             result = self.db_manager.get_recent_threats(limit, offset, search_ip, include_marked_safe)
             
-            # Format threats for frontend
             formatted_threats = []
             for row in result['threats']:
+                # Convert sqlite3.Row to dict for safe access
+                row_dict = dict(row) if hasattr(row, 'keys') else row
+                
                 threat_data = {
-                    'ip': row['ip'],
-                    'score': row['abuse_score'],
-                    'reports': row['reports'],
-                    'last_seen': row['last_seen'],
-                    'country': row['country'],
-                    'categories': row['categories'],
-                    'destination_port': row['destination_port'] or '',
-                    'marked_safe': bool(row['marked_safe']),
-                    'marked_safe_date': row['marked_safe_date'] or '',
-                    'marked_safe_by': row['marked_safe_by'] or ''
+                    'ip': row_dict.get('ip') or 'Unknown',
+                    'score': row_dict.get('abuse_score') or 0,
+                    'reports': row_dict.get('reports') or 0,
+                    'last_seen': row_dict.get('last_seen') or 'Never',
+                    'country': row_dict.get('country') or 'Unknown',
+                    'categories': row_dict.get('categories') or '',
+                    'connection_details': row_dict.get('connection_details') or '',
+                    'marked_safe': bool(row_dict.get('marked_safe')) if row_dict.get('marked_safe') is not None else False,
+                    'marked_safe_date': row_dict.get('marked_safe_date') or '',
+                    'marked_safe_by': row_dict.get('marked_safe_by') or ''
                 }
                 formatted_threats.append(threat_data)
             
             return {
                 'status': 'ok',
                 'threats': formatted_threats,
-                'total_count': result['total_count'],
+                'total_count': result.get('total_count', 0),
                 'limit': limit,
                 'offset': offset
             }
             
         except Exception as e:
             log_message(f"Error retrieving recent threats: {str(e)}")
-            return {'status': 'error', 'message': f'Error retrieving threats: {str(e)}'}
-    
+            import traceback
+            log_message(f"Full traceback: {traceback.format_exc()}")
+            return {
+                'status': 'error', 
+                'message': f'Error retrieving threats: {str(e)}',
+                'threats': [],
+                'total_count': 0,
+                'limit': limit,
+                'offset': offset
+            }
+
     def get_all_checked_ips(self, limit=20, offset=0, search_ip=''):
-        """Get all checked IPs with pagination and search"""
+        """Get all checked IPs - FIXED for sqlite3.Row objects"""
         try:
             result = self.db_manager.get_all_checked_ips(limit, offset, search_ip)
             
-            # Format IPs for frontend
             formatted_ips = []
             for row in result['ips']:
-                threat_level = row['threat_level'] or 0
+                # Convert sqlite3.Row to dict for safe access
+                row_dict = dict(row) if hasattr(row, 'keys') else row
+                
+                # Safe access with proper defaults
+                threat_level = row_dict.get('threat_level') or 0
+                
                 ip_data = {
-                    'ip': row['ip'],
-                    'last_checked': row['last_checked'],
+                    'ip': row_dict.get('ip') or 'Unknown',
+                    'last_checked': row_dict.get('last_checked') or 'Never',
                     'threat_level': threat_level,
                     'threat_text': get_threat_level_text(threat_level),
-                    'check_count': row['check_count'],
-                    'abuse_score': row['abuse_score'] or 0,
-                    'reports': row['reports'] or 0,
-                    'country': row['country'] or 'Unknown',
-                    'categories': row['categories'] or '',
-                    'destination_port': row['destination_port'] or '',
-                    'marked_safe': bool(row['marked_safe']) if row['marked_safe'] is not None else False,
-                    'marked_safe_date': row['marked_safe_date'] or '',
-                    'marked_safe_by': row['marked_safe_by'] or ''
+                    'check_count': row_dict.get('check_count') or 0,
+                    'abuse_score': row_dict.get('abuse_score') or 0,
+                    'reports': row_dict.get('reports') or 0,
+                    'country': row_dict.get('country') or 'Unknown',
+                    'categories': row_dict.get('categories') or '',
+                    'connection_details': row_dict.get('connection_details') or '',
+                    'marked_safe': bool(row_dict.get('marked_safe')) if row_dict.get('marked_safe') is not None else False,
+                    'marked_safe_date': row_dict.get('marked_safe_date') or '',
+                    'marked_safe_by': row_dict.get('marked_safe_by') or ''
                 }
                 formatted_ips.append(ip_data)
             
             return {
                 'status': 'ok',
                 'ips': formatted_ips,
-                'total_count': result['total_count'],
+                'total_count': result.get('total_count', 0),
                 'limit': limit,
                 'offset': offset
             }
             
         except Exception as e:
             log_message(f"Error retrieving all checked IPs: {str(e)}")
-            return {'status': 'error', 'message': f'Error retrieving checked IPs: {str(e)}'}
-    
+            import traceback
+            log_message(f"Full traceback: {traceback.format_exc()}")
+            return {
+                'status': 'error', 
+                'message': f'Error retrieving checked IPs: {str(e)}',
+                'ips': [],
+                'total_count': 0,
+                'limit': limit,
+                'offset': offset
+            }
+
     def validate_configuration(self):
         """Validate configuration for service startup"""
         try:

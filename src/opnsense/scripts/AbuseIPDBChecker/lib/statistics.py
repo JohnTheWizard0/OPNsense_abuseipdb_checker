@@ -54,33 +54,35 @@ class StatisticsManager:
         except Exception as e:
             log_message(f"Error retrieving comprehensive statistics: {str(e)}")
             return {'status': 'error', 'message': f'Error retrieving statistics: {str(e)}'}
-    
+
     def get_recent_threats(self, limit=20, offset=0, search_ip='', include_marked_safe=True):
-        """Get recent threats with enhanced formatting and marked safe handling"""
+        """Get recent threats - FIXED for sqlite3.Row objects"""
         try:
             result = self.db.get_recent_threats(limit, offset, search_ip, include_marked_safe)
             
             threats = []
             for row in result['threats']:
+                # Convert sqlite3.Row to dict for safe access
+                row_dict = dict(row) if hasattr(row, 'keys') else row
+                
                 threat_data = {
-                    'ip': row['ip'],
-                    'score': row['abuse_score'],
-                    'reports': row['reports'],
-                    'last_seen': row['last_seen'],
-                    'country': row['country'],
-                    'categories': row['categories'],
-                    'destination_port': row['destination_port'] or '',
-                    'marked_safe': bool(row['marked_safe']),
-                    'marked_safe_date': row['marked_safe_date'] or '',
-                    'marked_safe_by': row['marked_safe_by'] or '',
-                    'threat_level': 2 if row['abuse_score'] >= 70 else (1 if row['abuse_score'] >= 40 else 0)
+                    'ip': row_dict.get('ip') or 'Unknown',
+                    'score': row_dict.get('abuse_score') or 0,
+                    'reports': row_dict.get('reports') or 0,
+                    'last_seen': row_dict.get('last_seen') or 'Never',
+                    'country': row_dict.get('country') or 'Unknown',
+                    'categories': row_dict.get('categories') or '',
+                    'connection_details': row_dict.get('connection_details') or '',
+                    'marked_safe': bool(row_dict.get('marked_safe')) if row_dict.get('marked_safe') is not None else False,
+                    'marked_safe_date': row_dict.get('marked_safe_date') or '',
+                    'marked_safe_by': row_dict.get('marked_safe_by') or ''
                 }
                 threats.append(threat_data)
             
             return {
                 'status': 'ok',
                 'threats': threats,
-                'total_count': result['total_count'],
+                'total_count': result.get('total_count', 0),
                 'limit': limit,
                 'offset': offset,
                 'search_query': search_ip,
@@ -89,37 +91,47 @@ class StatisticsManager:
             
         except Exception as e:
             log_message(f"Error retrieving recent threats: {str(e)}")
-            return {'status': 'error', 'message': f'Error retrieving threats: {str(e)}'}
-    
+            return {
+                'status': 'error', 
+                'message': f'Error retrieving threats: {str(e)}',
+                'threats': [],
+                'total_count': 0,
+                'limit': limit,
+                'offset': offset
+            }
+
     def get_all_checked_ips(self, limit=20, offset=0, search_ip=''):
-        """Get all checked IPs with enhanced classification and port information"""
+        """Get all checked IPs - FIXED for sqlite3.Row objects"""
         try:
             result = self.db.get_all_checked_ips(limit, offset, search_ip)
             
             ips = []
             for row in result['ips']:
-                threat_level = row['threat_level'] or 0
+                # Convert sqlite3.Row to dict for safe access
+                row_dict = dict(row) if hasattr(row, 'keys') else row
+                
+                threat_level = row_dict.get('threat_level') or 0
                 ip_data = {
-                    'ip': row['ip'],
-                    'last_checked': row['last_checked'],
+                    'ip': row_dict.get('ip') or 'Unknown',
+                    'last_checked': row_dict.get('last_checked') or 'Never',
                     'threat_level': threat_level,
                     'threat_text': get_threat_level_text(threat_level),
-                    'check_count': row['check_count'],
-                    'abuse_score': row['abuse_score'] or 0,
-                    'reports': row['reports'] or 0,
-                    'country': row['country'] or 'Unknown',
-                    'categories': row['categories'] or '',
-                    'destination_port': row['destination_port'] or '',
-                    'marked_safe': bool(row['marked_safe']) if row['marked_safe'] is not None else False,
-                    'marked_safe_date': row['marked_safe_date'] or '',
-                    'marked_safe_by': row['marked_safe_by'] or ''
+                    'check_count': row_dict.get('check_count') or 0,
+                    'abuse_score': row_dict.get('abuse_score') or 0,
+                    'reports': row_dict.get('reports') or 0,
+                    'country': row_dict.get('country') or 'Unknown',
+                    'categories': row_dict.get('categories') or '',
+                    'connection_details': row_dict.get('connection_details') or '',
+                    'marked_safe': bool(row_dict.get('marked_safe')) if row_dict.get('marked_safe') is not None else False,
+                    'marked_safe_date': row_dict.get('marked_safe_date') or '',
+                    'marked_safe_by': row_dict.get('marked_safe_by') or ''
                 }
                 ips.append(ip_data)
             
             return {
                 'status': 'ok',
                 'ips': ips,
-                'total_count': result['total_count'],
+                'total_count': result.get('total_count', 0),
                 'limit': limit,
                 'offset': offset,
                 'search_query': search_ip
@@ -127,8 +139,15 @@ class StatisticsManager:
             
         except Exception as e:
             log_message(f"Error retrieving all checked IPs: {str(e)}")
-            return {'status': 'error', 'message': f'Error retrieving checked IPs: {str(e)}'}
-    
+            return {
+                'status': 'error', 
+                'message': f'Error retrieving checked IPs: {str(e)}',
+                'ips': [],
+                'total_count': 0,
+                'limit': limit,
+                'offset': offset
+            }
+
     def export_threats_data(self, format='json', include_suspicious=False, include_marked_safe=False):
         """Export threats data in various formats with enhanced filtering"""
         try:

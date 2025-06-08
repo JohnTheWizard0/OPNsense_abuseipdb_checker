@@ -90,7 +90,7 @@ class DatabaseManager:
         except Exception as e:
             log_message(f"Error initializing database: {str(e)}")
             raise
-    
+
     def _update_schema(self):
         """Update existing database schema with new columns"""
         try:
@@ -112,6 +112,11 @@ class DatabaseManager:
                 if 'destination_port' not in columns:
                     c.execute('ALTER TABLE checked_ips ADD COLUMN destination_port TEXT DEFAULT ""')
                     log_message("Added destination_port column to checked_ips")
+                
+                # NEW: Add connection_details column to store full connection info
+                if 'connection_details' not in columns:
+                    c.execute('ALTER TABLE checked_ips ADD COLUMN connection_details TEXT DEFAULT ""')
+                    log_message("Added connection_details column to checked_ips")
                 
                 # Check and add new columns to threats
                 c.execute('PRAGMA table_info(threats)')
@@ -137,7 +142,7 @@ class DatabaseManager:
                 
         except Exception as e:
             log_message(f"Error updating schema: {str(e)}")
-    
+
     def get_connection(self):
         """Get database connection with row factory"""
         conn = sqlite3.connect(self.db_file)
@@ -164,35 +169,58 @@ class DatabaseManager:
         except Exception as e:
             log_message(f"Database query error: {str(e)}")
             raise
-    
-    def update_checked_ip(self, ip, threat_level, country='Unknown', destination_port=''):
-        """Update or insert IP into checked_ips table with port info"""
+
+    def update_checked_ip(self, ip, threat_level, country='Unknown', connection_details=''):
+        """Update or insert IP - FIXED for sqlite3.Row objects"""
         check_date = get_db_timestamp()
         
         try:
             existing = self.get_checked_ip(ip)
             
             if existing:
-                # Update existing record, preserving port info if new port is empty
-                # Use dict-style access for sqlite3.Row objects
-                existing_port = existing['destination_port'] if 'destination_port' in existing.keys() else ''
-                update_port = destination_port if destination_port else existing_port
+                # Convert sqlite3.Row to dict and handle connection_details safely
+                existing_dict = dict(existing) if hasattr(existing, 'keys') else existing
+                existing_details = existing_dict.get('connection_details', '') or ''
+                merged_details = self._merge_connection_details(existing_details, connection_details)
+                
                 self.execute_query(
-                    'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, threat_level = ?, country = ?, destination_port = ? WHERE ip = ?',
-                    (check_date, threat_level, country, update_port, ip)
+                    'UPDATE checked_ips SET last_checked = ?, check_count = check_count + 1, threat_level = ?, country = ?, connection_details = ? WHERE ip = ?',
+                    (check_date, threat_level, country, merged_details, ip)
                 )
-                log_message(f"Updated checked_ips: {ip} -> threat_level={threat_level}, port={update_port}")
+                log_message(f"Updated checked_ips: {ip} -> threat_level={threat_level}")
             else:
                 self.execute_query(
-                    'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, threat_level, country, destination_port) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    (ip, check_date, check_date, 1, threat_level, country, destination_port)
+                    'INSERT INTO checked_ips (ip, first_seen, last_checked, check_count, threat_level, country, connection_details) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (ip, check_date, check_date, 1, threat_level, country, connection_details)
                 )
-                log_message(f"Inserted checked_ips: {ip} -> threat_level={threat_level}, port={destination_port}")
+                log_message(f"Inserted checked_ips: {ip} -> threat_level={threat_level}")
                 
         except Exception as e:
             log_message(f"Error updating checked IP {ip}: {str(e)}")
             raise
-    
+
+    def _merge_connection_details(self, existing_details, new_details):
+        """Merge connection details, avoiding duplicates"""
+        if not existing_details:
+            return new_details
+        if not new_details:
+            return existing_details
+        
+        # Parse existing and new connection details
+        existing_connections = set()
+        new_connections = set()
+        
+        if existing_details:
+            existing_connections = set(existing_details.split('|'))
+        if new_details:
+            new_connections = set(new_details.split('|'))
+        
+        # Merge and limit to last 10 connections
+        all_connections = existing_connections.union(new_connections)
+        limited_connections = list(all_connections)[-10:]  # Keep only last 10
+        
+        return '|'.join(limited_connections)
+
     def update_threat(self, ip, abuse_score, reports, categories, country):
         """Update or insert threat information"""
         check_date = get_db_timestamp()
@@ -276,10 +304,18 @@ class DatabaseManager:
             (ip,), 
             fetch_one=True
         )
-    
+
     def get_recent_threats(self, limit=20, offset=0, search_ip='', include_marked_safe=True):
-        """Get recent threats with pagination and search"""
+        """Get recent threats with pagination and search - COMPATIBILITY FIX"""
         try:
+            # First check if connection_details column exists
+            conn = self.get_connection()
+            c = conn.cursor()
+            c.execute('PRAGMA table_info(checked_ips)')
+            columns = [column[1] for column in c.fetchall()]
+            has_connection_details = 'connection_details' in columns
+            conn.close()
+            
             # Build WHERE clause
             where_conditions = []
             params = []
@@ -305,26 +341,47 @@ class DatabaseManager:
             total_result = self.execute_query(count_query, params, fetch_one=True)
             total_count = total_result['total'] if total_result else 0
             
-            # Get paginated results
+            # Get paginated results with conditional connection details
             params.extend([limit, offset])
-            query = f'''
-                SELECT 
-                    t.ip, 
-                    t.abuse_score, 
-                    t.reports, 
-                    t.last_seen, 
-                    t.country, 
-                    t.categories,
-                    t.marked_safe,
-                    t.marked_safe_date,
-                    t.marked_safe_by,
-                    c.destination_port
-                FROM threats t
-                JOIN checked_ips c ON t.ip = c.ip
-                {where_clause}
-                ORDER BY t.marked_safe ASC, c.last_checked DESC
-                LIMIT ? OFFSET ?
-            '''
+            
+            if has_connection_details:
+                query = f'''
+                    SELECT 
+                        t.ip, 
+                        t.abuse_score, 
+                        t.reports, 
+                        t.last_seen, 
+                        t.country, 
+                        t.categories,
+                        t.marked_safe,
+                        t.marked_safe_date,
+                        t.marked_safe_by,
+                        COALESCE(c.connection_details, '') as connection_details
+                    FROM threats t
+                    JOIN checked_ips c ON t.ip = c.ip
+                    {where_clause}
+                    ORDER BY t.marked_safe ASC, c.last_checked DESC
+                    LIMIT ? OFFSET ?
+                '''
+            else:
+                query = f'''
+                    SELECT 
+                        t.ip, 
+                        t.abuse_score, 
+                        t.reports, 
+                        t.last_seen, 
+                        t.country, 
+                        t.categories,
+                        t.marked_safe,
+                        t.marked_safe_date,
+                        t.marked_safe_by,
+                        '' as connection_details
+                    FROM threats t
+                    JOIN checked_ips c ON t.ip = c.ip
+                    {where_clause}
+                    ORDER BY t.marked_safe ASC, c.last_checked DESC
+                    LIMIT ? OFFSET ?
+                '''
             
             results = self.execute_query(query, params, fetch_all=True)
             
@@ -338,10 +395,18 @@ class DatabaseManager:
         except Exception as e:
             log_message(f"Error getting recent threats: {str(e)}")
             return {'threats': [], 'total_count': 0, 'limit': limit, 'offset': offset}
-    
+
     def get_all_checked_ips(self, limit=20, offset=0, search_ip=''):
-        """Get all checked IPs with pagination and search"""
+        """Get all checked IPs with pagination and search - COMPATIBILITY FIX"""
         try:
+            # First check if connection_details column exists
+            conn = self.get_connection()
+            c = conn.cursor()
+            c.execute('PRAGMA table_info(checked_ips)')
+            columns = [column[1] for column in c.fetchall()]
+            has_connection_details = 'connection_details' in columns
+            conn.close()
+            
             # Build WHERE clause
             where_clause = ""
             params = []
@@ -359,28 +424,51 @@ class DatabaseManager:
             total_result = self.execute_query(count_query, params, fetch_one=True)
             total_count = total_result['total'] if total_result else 0
             
-            # Get paginated results
+            # Build main query with conditional connection_details
             params.extend([limit, offset])
-            query = f'''
-                SELECT 
-                    ci.ip,
-                    ci.last_checked,
-                    ci.threat_level,
-                    ci.check_count,
-                    ci.country,
-                    ci.destination_port,
-                    t.abuse_score,
-                    t.reports,
-                    t.categories,
-                    t.marked_safe,
-                    t.marked_safe_date,
-                    t.marked_safe_by
-                FROM checked_ips ci
-                LEFT JOIN threats t ON ci.ip = t.ip
-                {where_clause}
-                ORDER BY ci.last_checked DESC
-                LIMIT ? OFFSET ?
-            '''
+            
+            if has_connection_details:
+                query = f'''
+                    SELECT 
+                        ci.ip,
+                        ci.last_checked,
+                        ci.threat_level,
+                        ci.check_count,
+                        ci.country,
+                        COALESCE(ci.connection_details, '') as connection_details,
+                        t.abuse_score,
+                        t.reports,
+                        t.categories,
+                        t.marked_safe,
+                        t.marked_safe_date,
+                        t.marked_safe_by
+                    FROM checked_ips ci
+                    LEFT JOIN threats t ON ci.ip = t.ip
+                    {where_clause}
+                    ORDER BY ci.last_checked DESC
+                    LIMIT ? OFFSET ?
+                '''
+            else:
+                query = f'''
+                    SELECT 
+                        ci.ip,
+                        ci.last_checked,
+                        ci.threat_level,
+                        ci.check_count,
+                        ci.country,
+                        '' as connection_details,
+                        t.abuse_score,
+                        t.reports,
+                        t.categories,
+                        t.marked_safe,
+                        t.marked_safe_date,
+                        t.marked_safe_by
+                    FROM checked_ips ci
+                    LEFT JOIN threats t ON ci.ip = t.ip
+                    {where_clause}
+                    ORDER BY ci.last_checked DESC
+                    LIMIT ? OFFSET ?
+                '''
             
             results = self.execute_query(query, params, fetch_all=True)
             
@@ -394,7 +482,7 @@ class DatabaseManager:
         except Exception as e:
             log_message(f"Error getting all checked IPs: {str(e)}")
             return {'ips': [], 'total_count': 0, 'limit': limit, 'offset': offset}
-    
+
     def get_ips_needing_check(self, check_frequency_days):
         """Get IPs that need to be checked based on frequency"""
         cutoff_date = (datetime.now() - timedelta(days=check_frequency_days)).strftime('%Y-%m-%d %H:%M:%S')
