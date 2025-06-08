@@ -6,4 +6,4 @@ This plugin parses firewall logs for external IPs, checks them against
 the AbuseIPDB API, stores results in a local SQLite database, and can
 send email notifications for detected threats.
 
-WWW: https://github.com/yourusername/opnsense-abuseipdbchecker
+WWW: https://github.com/JohnTheWizard0/OPNsense_abuseipdb_checker

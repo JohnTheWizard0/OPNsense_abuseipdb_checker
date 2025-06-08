@@ -48,7 +48,7 @@ class DaemonManager:
         last_batch_time = time.time()
         poll_count = 0
         
-        log_message(f"Enhanced daemon configured: batch_interval={self.batch_interval}s, poll_interval={self.poll_interval}s")
+        log_message(f"Daemon configured: batch_interval={self.batch_interval}s, poll_interval={self.poll_interval}s")
         
         while self.running:
             try:
@@ -99,8 +99,8 @@ class DaemonManager:
                 # Check if it's time to process the batch
                 if current_time - last_batch_time >= self.batch_interval:
                     if ip_connections:
-                        log_message(f"=== ENHANCED BATCH PROCESSING: {len(ip_connections)} unique IPs with port info ===")
-                        result = self._process_ip_batch_with_ports(ip_connections, config)
+                        log_message(f"=== BATCH PROCESSING: {len(ip_connections)} unique IPs ===")
+                        result = self._process_ip_batch_with_connections(ip_connections, config)
                         self._log_batch_result(result)
                         ip_connections.clear()
                     else:
@@ -131,7 +131,7 @@ class DaemonManager:
             log_message(f"Error collecting connections: {str(e)}")
             return {}
 
-    def _process_ip_batch_with_ports(self, ip_connections, config):
+    def _process_ip_batch_with_connections(self, ip_connections, config):
         """Process a batch of collected IPs with connection information"""
         if not ip_connections:
             return {'status': 'ok', 'ips_checked': 0, 'threats_detected': 0, 'skipped': 0}
@@ -225,10 +225,39 @@ class DaemonManager:
         
         for ip, connections in ips_to_check.items():
             try:
-                connection_strings = list(connections) if isinstance(connections, set) else connections
-                connection_details = '|'.join(connection_strings[:10])  # Limit to 10 connections
+                # FIX: Properly handle different connection data types
+                if isinstance(connections, set):
+                    connection_strings = list(connections)
+                elif isinstance(connections, (list, tuple)):
+                    connection_strings = list(connections)
+                elif isinstance(connections, str):
+                    connection_strings = [connections]
+                else:
+                    # Handle any other type - convert to string first
+                    try:
+                        connection_strings = [str(connections)]
+                    except Exception as e:
+                        log_message(f"Warning: Could not convert connections for {ip}: {str(e)}")
+                        connection_strings = []
                 
-                log_message(f"Checking IP: {ip} (connections: {len(connection_strings)})")
+                # FIX: Ensure we only work with strings and avoid slice objects
+                safe_connection_strings = []
+                for conn in connection_strings:
+                    try:
+                        # Ensure each connection is a string
+                        if isinstance(conn, str):
+                            safe_connection_strings.append(conn)
+                        else:
+                            safe_connection_strings.append(str(conn))
+                    except Exception as e:
+                        log_message(f"Warning: Skipping invalid connection for {ip}: {str(e)}")
+                        continue
+                
+                # Limit to 10 connections safely
+                limited_connections = safe_connection_strings[:10] if safe_connection_strings else []
+                connection_details = '|'.join(limited_connections)
+                
+                log_message(f"Checking IP: {ip} (connections: {len(limited_connections)})")
                 
                 # Check if IP was previously a threat
                 existing_threat = self.db_manager.get_threat(ip)
@@ -268,6 +297,10 @@ class DaemonManager:
                     
             except Exception as e:
                 log_message(f"Error checking IP {ip}: {str(e)}")
+                # Log more details for debugging
+                log_message(f"Connection data type for {ip}: {type(connections)}")
+                if hasattr(connections, '__dict__'):
+                    log_message(f"Connection data content for {ip}: {str(connections)[:200]}")
                 continue
         
         return {

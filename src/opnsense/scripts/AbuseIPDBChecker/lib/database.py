@@ -201,25 +201,36 @@ class DatabaseManager:
 
     def _merge_connection_details(self, existing_details, new_details):
         """Merge connection details, avoiding duplicates"""
-        if not existing_details:
-            return new_details
-        if not new_details:
-            return existing_details
+        # FIX: Ensure all inputs are strings
+        try:
+            existing_str = str(existing_details) if existing_details else ''
+            new_str = str(new_details) if new_details else ''
+        except Exception as e:
+            log_message(f"Warning: Could not convert connection details to string: {str(e)}")
+            return ''
+        
+        if not existing_str:
+            return new_str
+        if not new_str:
+            return existing_str
         
         # Parse existing and new connection details
-        existing_connections = set()
-        new_connections = set()
-        
-        if existing_details:
-            existing_connections = set(existing_details.split('|'))
-        if new_details:
-            new_connections = set(new_details.split('|'))
-        
-        # Merge and limit to last 10 connections
-        all_connections = existing_connections.union(new_connections)
-        limited_connections = list(all_connections)[-10:]  # Keep only last 10
-        
-        return '|'.join(limited_connections)
+        try:
+            existing_connections = set(existing_str.split('|')) if existing_str else set()
+            new_connections = set(new_str.split('|')) if new_str else set()
+            
+            # Merge and limit to last 10 connections
+            all_connections = existing_connections.union(new_connections)
+            
+            # FIX: Ensure we handle the list conversion safely
+            connection_list = list(all_connections)
+            limited_connections = connection_list[-10:] if len(connection_list) > 10 else connection_list
+            
+            return '|'.join(limited_connections)
+            
+        except Exception as e:
+            log_message(f"Error merging connection details: {str(e)}")
+            return new_str  # Return new details as fallback
 
     def update_threat(self, ip, abuse_score, reports, categories, country):
         """Update or insert threat information"""
