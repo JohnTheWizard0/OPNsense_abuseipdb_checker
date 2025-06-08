@@ -188,14 +188,36 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
-     * get recent threats
+     * get recent threats with pagination and search
      */
     public function threatsAction()
     {
+        $page = (int)$this->request->get('page', 'int', 1);
+        $limit = (int)$this->request->get('limit', 'int', 20);
+        $search = $this->request->get('search', 'string', '');
+        $include_marked_safe = $this->request->get('include_marked_safe', 'string', 'true') === 'true';
+        
+        $offset = ($page - 1) * $limit;
+        
         $backend = new Backend();
-        $response = $backend->configdRun("abuseipdbchecker threats");
+        $response = $backend->configdRun("abuseipdbchecker threats " . 
+            escapeshellarg($limit) . " " . 
+            escapeshellarg($offset) . " " . 
+            escapeshellarg($search) . " " .
+            escapeshellarg($include_marked_safe ? '1' : '0'));
+            
         $bckresult = json_decode(trim($response), true);
         if ($bckresult !== null) {
+            // Add pagination info
+            if (isset($bckresult['total_count'])) {
+                $bckresult['pagination'] = [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total_pages' => ceil($bckresult['total_count'] / $limit),
+                    'has_next' => ($offset + $limit) < $bckresult['total_count'],
+                    'has_prev' => $page > 1
+                ];
+            }
             return $bckresult;
         }
         return ["status" => "failed", "message" => "Unable to retrieve recent threats"];
@@ -248,6 +270,92 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * remove IP from threats
+     */
+    public function removeipAction()
+    {
+        if ($this->request->isPost()) {
+            $input = json_decode($this->request->getRawBody(), true);
+            $ip = isset($input['ip']) ? $input['ip'] : $this->request->getPost('ip', 'string', '');
+            
+            if (empty($ip)) {
+                return array("status" => "failed", "message" => "IP address is required");
+            }
+            
+            if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+                return array("status" => "failed", "message" => "Invalid IP address format");
+            }
+            
+            $backend = new Backend();
+            $response = $backend->configdRun("abuseipdbchecker removeip " . escapeshellarg($ip));
+            $bckresult = json_decode(trim($response), true);
+            
+            if ($bckresult !== null) {
+                return $bckresult;
+            }
+        }
+        return ["status" => "failed", "message" => "Unable to remove IP"];
+    }
+
+    /**
+     * mark IP as safe
+     */
+    public function marksafeAction()
+    {
+        if ($this->request->isPost()) {
+            $input = json_decode($this->request->getRawBody(), true);
+            $ip = isset($input['ip']) ? $input['ip'] : $this->request->getPost('ip', 'string', '');
+            $marked_by = isset($input['marked_by']) ? $input['marked_by'] : 'admin';
+            
+            if (empty($ip)) {
+                return array("status" => "failed", "message" => "IP address is required");
+            }
+            
+            if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+                return array("status" => "failed", "message" => "Invalid IP address format");
+            }
+            
+            $backend = new Backend();
+            $response = $backend->configdRun("abuseipdbchecker marksafe " . 
+                escapeshellarg($ip) . " " . escapeshellarg($marked_by));
+            $bckresult = json_decode(trim($response), true);
+            
+            if ($bckresult !== null) {
+                return $bckresult;
+            }
+        }
+        return ["status" => "failed", "message" => "Unable to mark IP as safe"];
+    }
+
+    /**
+     * unmark IP as safe
+     */
+    public function unmarksafeAction()
+    {
+        if ($this->request->isPost()) {
+            $input = json_decode($this->request->getRawBody(), true);
+            $ip = isset($input['ip']) ? $input['ip'] : $this->request->getPost('ip', 'string', '');
+            
+            if (empty($ip)) {
+                return array("status" => "failed", "message" => "IP address is required");
+            }
+            
+            if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+                return array("status" => "failed", "message" => "Invalid IP address format");
+            }
+            
+            $backend = new Backend();
+            $response = $backend->configdRun("abuseipdbchecker unmarksafe " . escapeshellarg($ip));
+            $bckresult = json_decode(trim($response), true);
+            
+            if ($bckresult !== null) {
+                return $bckresult;
+            }
+        }
+        return ["status" => "failed", "message" => "Unable to unmark IP as safe"];
+    }
+
+    /**
      * list external IPs from firewall logs
      */
     public function listipsAction()
@@ -273,14 +381,34 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
-     * get all checked IPs with three-tier classification
+     * get all checked IPs with pagination and search
      */
     public function allipsAction()
     {
+        $page = (int)$this->request->get('page', 'int', 1);
+        $limit = (int)$this->request->get('limit', 'int', 20);
+        $search = $this->request->get('search', 'string', '');
+        
+        $offset = ($page - 1) * $limit;
+        
         $backend = new Backend();
-        $response = $backend->configdRun("abuseipdbchecker allips");
+        $response = $backend->configdRun("abuseipdbchecker allips " . 
+            escapeshellarg($limit) . " " . 
+            escapeshellarg($offset) . " " . 
+            escapeshellarg($search));
+            
         $bckresult = json_decode(trim($response), true);
         if ($bckresult !== null) {
+            // Add pagination info
+            if (isset($bckresult['total_count'])) {
+                $bckresult['pagination'] = [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total_pages' => ceil($bckresult['total_count'] / $limit),
+                    'has_next' => ($offset + $limit) < $bckresult['total_count'],
+                    'has_prev' => $page > 1
+                ];
+            }
             return $bckresult;
         }
         return ["status" => "failed", "message" => "Unable to retrieve all checked IPs"];

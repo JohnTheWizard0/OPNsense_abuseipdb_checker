@@ -1,8 +1,8 @@
 #!/usr/local/bin/python3
 
 """
-Daemon Manager Module
-Handles daemon operations, batch processing, and automated threat detection
+Enhanced Daemon Manager Module
+Handles daemon operations, batch processing, and automated threat detection with port tracking
 """
 
 import os
@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from .core_utils import log_message, classify_threat_level, get_threat_level_text
 
 class DaemonManager:
-    """Manages daemon operations with batch processing and alias updates"""
+    """Enhanced daemon operations with batch processing, alias updates, and port tracking"""
     
     def __init__(self, config_manager=None, db_manager=None):
         # Accept managers as dependencies to avoid circular imports
@@ -43,12 +43,12 @@ class DaemonManager:
         sys.exit(0)
 
     def _run_daemon_loop(self):
-        """Main daemon loop with batch collection and processing"""
-        ip_collection = set()
+        """Main daemon loop with batch collection and processing including port tracking"""
+        ip_connections = {}  # ip -> {ports: set, last_seen: timestamp}
         last_batch_time = time.time()
         poll_count = 0
         
-        log_message(f"Daemon configured: batch_interval={self.batch_interval}s, poll_interval={self.poll_interval}s")
+        log_message(f"Enhanced daemon configured: batch_interval={self.batch_interval}s, poll_interval={self.poll_interval}s")
         
         while self.running:
             try:
@@ -61,12 +61,6 @@ class DaemonManager:
                 
                 config = self.config_manager.get_config()
                 
-                # REMOVE this enabled check - service is enabled by being started
-                # if not config['enabled']:
-                #     log_message("Service disabled, sleeping...")
-                #     time.sleep(self.poll_interval)
-                #     continue
-                
                 # Validate critical configuration before processing
                 validation = self.config_manager.validate_config()
                 if validation['errors']:
@@ -75,21 +69,40 @@ class DaemonManager:
                     time.sleep(self.poll_interval)
                     continue
                 
-                # Collect external IPs from current logs
-                new_ips = self._collect_external_ips(config)
-                if new_ips:
-                    new_count = len(new_ips - ip_collection)
-                    if new_count > 0:
-                        log_message(f"Poll #{poll_count}: Found {new_count} new external IPs")
-                    ip_collection.update(new_ips)
+                # Collect external IPs with port information from current logs
+                new_connections = self._collect_external_connections(config)
+                new_count = 0
+                
+                if new_connections:
+                    for ip, ports in new_connections.items():
+                        if ip not in ip_connections:
+                            ip_connections[ip] = {'ports': set(), 'last_seen': current_time}
+                            new_count += 1
+                        
+                        # Convert ports to set and check for new ports
+                        new_ports_set = set(ports) if isinstance(ports, (list, tuple)) else ports
+                        existing_ports = ip_connections[ip]['ports']
+                        
+                        # Find truly new ports
+                        genuinely_new_ports = new_ports_set - existing_ports
+                        
+                        if genuinely_new_ports:
+                            log_message(f"Poll #{poll_count}: IP {ip} accessed new ports: {list(genuinely_new_ports)}")
+                        
+                        # Add new ports and update last seen
+                        ip_connections[ip]['ports'].update(new_ports_set)
+                        ip_connections[ip]['last_seen'] = current_time
+                
+                if new_count > 0:
+                    log_message(f"Poll #{poll_count}: Found {new_count} new external IPs")
                 
                 # Check if it's time to process the batch
                 if current_time - last_batch_time >= self.batch_interval:
-                    if ip_collection:
-                        log_message(f"=== BATCH PROCESSING: {len(ip_collection)} unique IPs collected ===")
-                        result = self._process_ip_batch(ip_collection, config)
+                    if ip_connections:
+                        log_message(f"=== ENHANCED BATCH PROCESSING: {len(ip_connections)} unique IPs with port info ===")
+                        result = self._process_ip_batch_with_ports(ip_connections, config)
                         self._log_batch_result(result)
-                        ip_collection.clear()
+                        ip_connections.clear()
                     else:
                         log_message("=== BATCH PROCESSING: No IPs to process ===")
                     
@@ -107,20 +120,20 @@ class DaemonManager:
         
         log_message("AbuseIPDB Checker daemon shutting down")
 
-    def _collect_external_ips(self, config):
-        """Collect external IPs from firewall logs"""
+    def _collect_external_connections(self, config):
+        """Collect external IPs with port information from firewall logs"""
         try:
             # Import locally to avoid circular imports
             from .log_parser import FirewallLogParser
             parser = FirewallLogParser(config)
-            return parser.parse_log_for_ips(recent_only=True)
+            return parser.parse_log_for_ips_with_ports(recent_only=True)
         except Exception as e:
-            log_message(f"Error collecting IPs: {str(e)}")
-            return set()
+            log_message(f"Error collecting connections: {str(e)}")
+            return {}
 
-    def _process_ip_batch(self, ip_batch, config):
-        """Process a batch of collected IPs"""
-        if not ip_batch:
+    def _process_ip_batch_with_ports(self, ip_connections, config):
+        """Process a batch of collected IPs with port information"""
+        if not ip_connections:
             return {'status': 'ok', 'ips_checked': 0, 'threats_detected': 0, 'skipped': 0}
         
         try:
@@ -135,23 +148,24 @@ class DaemonManager:
                 return {
                     'status': 'limited',
                     'message': f'Daily API limit reached ({daily_checks}/{daily_limit})',
-                    'ips_checked': 0, 'threats_detected': 0, 'skipped': len(ip_batch)
+                    'ips_checked': 0, 'threats_detected': 0, 'skipped': len(ip_connections)
                 }
             
             # Filter IPs that need checking
-            ips_to_check = self._filter_ips_for_checking(ip_batch, config)
-            skipped_count = len(ip_batch) - len(ips_to_check)
+            ips_to_check = self._filter_ips_for_checking_with_ports(ip_connections, config)
+            skipped_count = len(ip_connections) - len(ips_to_check)
             
             # Limit to daily quota
             available_checks = daily_limit - daily_checks
             if len(ips_to_check) > available_checks:
-                ips_to_check = ips_to_check[:available_checks]
-                skipped_count = len(ip_batch) - len(ips_to_check)
+                original_to_check = ips_to_check.copy()
+                ips_to_check = dict(list(ips_to_check.items())[:available_checks])
+                skipped_count = len(ip_connections) - len(ips_to_check)
             
-            log_message(f"Batch filter: {len(ips_to_check)} to check, {skipped_count} skipped")
+            log_message(f"Enhanced batch filter: {len(ips_to_check)} to check, {skipped_count} skipped")
             
-            # Process each IP
-            result = self._check_ips_with_api(ips_to_check, config)
+            # Process each IP with port information
+            result = self._check_ips_with_api_and_ports(ips_to_check, config)
             result['skipped'] = skipped_count
             
             # Update statistics
@@ -164,14 +178,14 @@ class DaemonManager:
             return result
             
         except Exception as e:
-            log_message(f"Error in process_ip_batch: {str(e)}")
-            return {'status': 'error', 'message': f'Batch processing error: {str(e)}'}
+            log_message(f"Error in process_ip_batch_with_ports: {str(e)}")
+            return {'status': 'error', 'message': f'Enhanced batch processing error: {str(e)}'}
     
-    def _filter_ips_for_checking(self, ip_batch, config):
-        """Filter IPs that need to be checked based on frequency"""
-        ips_to_check = []
+    def _filter_ips_for_checking_with_ports(self, ip_connections, config):
+        """Filter IPs that need to be checked based on frequency, keeping port info"""
+        ips_to_check = {}
         
-        for ip in ip_batch:
+        for ip, connection_info in ip_connections.items():
             existing = self.db_manager.get_checked_ip(ip)
             
             if existing:
@@ -179,12 +193,12 @@ class DaemonManager:
                 if last_checked > (datetime.now() - timedelta(days=config['check_frequency'])):
                     continue
             
-            ips_to_check.append(ip)
+            ips_to_check[ip] = connection_info
         
         return ips_to_check
 
-    def _check_ips_with_api(self, ips_to_check, config):
-        """Check IPs against AbuseIPDB API"""
+    def _check_ips_with_api_and_ports(self, ips_to_check, config):
+        """Check IPs against AbuseIPDB API with port information tracking"""
         # Import locally to avoid circular imports
         from .api_client import AbuseIPDBClient
         
@@ -193,9 +207,12 @@ class DaemonManager:
         new_threats_detected = 0  # Track NEW threats only
         ips_checked = 0
         
-        for ip in ips_to_check:
+        for ip, connection_info in ips_to_check.items():
             try:
-                log_message(f"Checking IP: {ip}")
+                ports = connection_info['ports']
+                port_list = list(ports) if isinstance(ports, set) else ports
+                
+                log_message(f"Checking IP: {ip} (accessed ports: {','.join(map(str, port_list))})")
                 
                 # Check if IP was previously a threat
                 existing_threat = self.db_manager.get_threat(ip)
@@ -209,8 +226,11 @@ class DaemonManager:
                     threat_level = classify_threat_level(abuse_score, config)
                     country = report.get('countryCode', 'Unknown')
                     
-                    # Update database
-                    self.db_manager.update_checked_ip(ip, threat_level, country)
+                    # Format port information for database storage
+                    destination_ports = ','.join(map(str, sorted(port_list))) if port_list else ''
+                    
+                    # Update database with port information
+                    self.db_manager.update_checked_ip(ip, threat_level, country, destination_ports)
                     
                     # Handle threats
                     if threat_level >= 1:  # Suspicious or Malicious
@@ -221,9 +241,9 @@ class DaemonManager:
                         # Only count as NEW threat if it wasn't a threat before
                         if not was_threat:
                             new_threats_detected += 1
-                            log_message(f"🚨 NEW THREAT DETECTED: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)})")
+                            log_message(f"🚨 NEW THREAT DETECTED: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)}, Ports: {destination_ports})")
                         else:
-                            log_message(f"Updated existing threat: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)})")
+                            log_message(f"Updated existing threat: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)}, Ports: {destination_ports})")
                     else:
                         # Remove from threats if now safe
                         if was_threat:
@@ -241,8 +261,8 @@ class DaemonManager:
             'status': 'ok',
             'ips_checked': ips_checked,
             'threats_detected': threats_detected,
-            'new_threats_detected': new_threats_detected,  # Add this field
-            'message': f'Batch processed: {ips_checked} checked, {threats_detected} threats ({new_threats_detected} new)'
+            'new_threats_detected': new_threats_detected,
+            'message': f'Enhanced batch processed: {ips_checked} checked, {threats_detected} threats ({new_threats_detected} new)'
         }
     
     def _extract_categories(self, report):
@@ -300,13 +320,13 @@ class DaemonManager:
             log_message(f"Error in auto-alias update: {str(e)}")
 
     def _log_batch_result(self, result):
-        """Log batch processing results"""
+        """Log enhanced batch processing results"""
         if result['status'] == 'ok':
-            log_message(f"Batch completed: {result['ips_checked']} checked, {result['threats_detected']} threats, {result.get('skipped', 0)} skipped")
+            log_message(f"Enhanced batch completed: {result['ips_checked']} checked, {result['threats_detected']} threats, {result.get('skipped', 0)} skipped")
             if result['threats_detected'] > 0:
-                log_message(f"⚠️  THREATS DETECTED: {result['threats_detected']} malicious IPs found!")
+                log_message(f"⚠️  THREATS DETECTED: {result['threats_detected']} malicious IPs found with port information!")
         else:
-            log_message(f"Batch failed: {result['message']}")
+            log_message(f"Enhanced batch failed: {result['message']}")
     
     def get_daemon_status(self):
         """Get current daemon status and recent activity"""
@@ -332,11 +352,11 @@ class DaemonManager:
                 'batch_interval': f'{self.batch_interval} seconds',
                 'poll_interval': f'{self.poll_interval} seconds',
                 'recent_batches': recent_batches,
-                'service_enabled': config.get('enabled', False),
                 'daily_checks_used': stats.get('daily_checks', '0'),
                 'daily_limit': config.get('daily_check_limit', 100),
                 'api_configured': bool(config.get('api_key') and config.get('api_key') != 'YOUR_API_KEY'),
-                'alias_configured': bool(config.get('opnsense_api_key') and config.get('opnsense_api_secret'))
+                'alias_configured': bool(config.get('opnsense_api_key') and config.get('opnsense_api_secret')),
+                'enhanced_features': 'Port tracking enabled'
             }
             
         except Exception as e:
@@ -350,12 +370,13 @@ class DaemonManager:
         if os.path.exists(LOG_FILE):
             try:
                 with open(LOG_FILE, 'r') as f:
-                    lines = f.readlines()[-50:]  # Last 50 lines
+                    lines = f.readlines()[-100:]  # Last 100 lines
                     
                 for line in reversed(lines):
-                    if 'BATCH PROCESSING:' in line or 'Batch completed:' in line:
+                    if ('BATCH PROCESSING:' in line or 'batch completed:' in line or 
+                        'Enhanced batch' in line or 'NEW THREAT DETECTED:' in line):
                         recent_batches.append(line.strip())
-                        if len(recent_batches) >= 5:  # Last 5 batch operations
+                        if len(recent_batches) >= 10:  # Last 10 batch operations
                             break
             except Exception:
                 pass

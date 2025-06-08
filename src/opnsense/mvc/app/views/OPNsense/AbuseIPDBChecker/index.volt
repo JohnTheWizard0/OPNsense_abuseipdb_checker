@@ -1,6 +1,17 @@
 <script>
     $(document).ready(function() {
         
+        // Global pagination state
+        var currentPages = {
+            threats: 1,
+            allscannedips: 1
+        };
+        
+        var currentSearch = {
+            threats: '',
+            allscannedips: ''
+        };
+        
         // Helper function to get country flag and name using CSS flag icons
         function getCountryDisplay(countryCode) {
             if (!countryCode || countryCode === 'Unknown' || countryCode === '' || countryCode === null) {
@@ -46,20 +57,12 @@
             return '<img src="' + flagPath + '" class="country-flag-local" alt="' + code + '" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'inline\'"> <span style="display:none" class="country-badge">' + code.toUpperCase() + '</span> ' + countryName;
         }
         
-        // Helper function to get just the flag icon
-        function getCountryFlag(countryCode) {
-            if (!countryCode || countryCode === 'Unknown' || countryCode === '' || countryCode === null) {
-                return '';
+        // Helper function to get threat status badge with enhanced status for marked safe
+        function getThreatStatusBadge(threatLevel, abuseScore, markedSafe) {
+            if (markedSafe) {
+                return '<span class="label label-info">Marked Safe (' + abuseScore + '%)</span>';
             }
             
-            var code = String(countryCode).toLowerCase().trim();
-            var flagPath = '/abuseipdbchecker/assets/flags/' + code + '.svg';
-            
-            return '<img src="' + flagPath + '" class="country-flag-local" alt="' + code + '" onerror="this.style.display=\'none\'">';
-        }
-        
-        // Helper function to get threat status badge with three-tier classification
-        function getThreatStatusBadge(threatLevel, abuseScore) {
             var level = threatLevel;
             if (typeof threatLevel === 'undefined' || threatLevel === null) {
                 if (abuseScore < 40) level = 0;
@@ -79,13 +82,418 @@
             }
         }
         
-        // Helper function to classify threat level from score
-        function classifyThreatLevel(abuseScore) {
-            if (abuseScore < 40) return 0;
-            else if (abuseScore < 70) return 1;
-            else return 2;
+        // Helper function to format port information
+        function formatPortInfo(portInfo) {
+            if (!portInfo || portInfo === '') {
+                return '<span class="text-muted">N/A</span>';
+            }
+            
+            // Handle multiple ports
+            var ports = portInfo.split(',');
+            if (ports.length > 3) {
+                return ports.slice(0, 3).join(', ') + ' <span class="text-muted">(+' + (ports.length - 3) + ' more)</span>';
+            }
+            
+            return portInfo;
         }
         
+        // Helper function to create pagination controls
+        function createPaginationControls(containerId, pagination, onPageClick) {
+            var container = $('#' + containerId);
+            container.empty();
+            
+            if (!pagination || pagination.total_pages <= 1) {
+                return;
+            }
+            
+            var paginationHtml = '<nav aria-label="Page navigation"><ul class="pagination pagination-sm">';
+            
+            // Previous button
+            if (pagination.has_prev) {
+                paginationHtml += '<li><a href="#" data-page="' + (pagination.page - 1) + '">&laquo; Previous</a></li>';
+            } else {
+                paginationHtml += '<li class="disabled"><span>&laquo; Previous</span></li>';
+            }
+            
+            // Page numbers (show up to 5 pages around current)
+            var startPage = Math.max(1, pagination.page - 2);
+            var endPage = Math.min(pagination.total_pages, pagination.page + 2);
+            
+            if (startPage > 1) {
+                paginationHtml += '<li><a href="#" data-page="1">1</a></li>';
+                if (startPage > 2) {
+                    paginationHtml += '<li class="disabled"><span>...</span></li>';
+                }
+            }
+            
+            for (var i = startPage; i <= endPage; i++) {
+                if (i === pagination.page) {
+                    paginationHtml += '<li class="active"><span>' + i + '</span></li>';
+                } else {
+                    paginationHtml += '<li><a href="#" data-page="' + i + '">' + i + '</a></li>';
+                }
+            }
+            
+            if (endPage < pagination.total_pages) {
+                if (endPage < pagination.total_pages - 1) {
+                    paginationHtml += '<li class="disabled"><span>...</span></li>';
+                }
+                paginationHtml += '<li><a href="#" data-page="' + pagination.total_pages + '">' + pagination.total_pages + '</a></li>';
+            }
+            
+            // Next button
+            if (pagination.has_next) {
+                paginationHtml += '<li><a href="#" data-page="' + (pagination.page + 1) + '">Next &raquo;</a></li>';
+            } else {
+                paginationHtml += '<li class="disabled"><span>Next &raquo;</span></li>';
+            }
+            
+            paginationHtml += '</ul></nav>';
+            
+            container.html(paginationHtml);
+            
+            // Bind click events
+            container.find('a[data-page]').click(function(e) {
+                e.preventDefault();
+                var page = parseInt($(this).data('page'));
+                onPageClick(page);
+            });
+        }
+        
+        // IP Management Functions
+        function removeIpFromThreats(ip) {
+            BootstrapDialog.confirm({
+                title: "{{ lang._('Confirm Remove') }}",
+                message: "{{ lang._('Are you sure you want to completely remove ') }}" + ip + "{{ lang._(' from the threats list? This action cannot be undone.') }}",
+                type: BootstrapDialog.TYPE_DANGER,
+                callback: function(confirmed) {
+                    if (confirmed) {
+                        $.ajax({
+                            url: '/api/abuseipdbchecker/service/removeip',
+                            type: 'POST',
+                            data: JSON.stringify({'ip': ip}),
+                            contentType: 'application/json',
+                            success: function(data) {
+                                if (data.status === 'ok') {
+                                    BootstrapDialog.show({
+                                        type: BootstrapDialog.TYPE_SUCCESS,
+                                        title: "{{ lang._('Success') }}",
+                                        message: "{{ lang._('IP ') }}" + ip + "{{ lang._(' has been removed from threats.') }}"
+                                    });
+                                    updateThreats(); // Refresh threats list
+                                    updateStats(); // Update statistics
+                                } else {
+                                    BootstrapDialog.show({
+                                        type: BootstrapDialog.TYPE_DANGER,
+                                        title: "{{ lang._('Error') }}",
+                                        message: data.message || "{{ lang._('Failed to remove IP') }}"
+                                    });
+                                }
+                            },
+                            error: function() {
+                                BootstrapDialog.show({
+                                    type: BootstrapDialog.TYPE_DANGER,
+                                    title: "{{ lang._('Error') }}",
+                                    message: "{{ lang._('Failed to communicate with server') }}"
+                                });
+                            }
+                        });
+                    }
+                }
+            });
+        }
+        
+        function markIpSafe(ip) {
+            BootstrapDialog.confirm({
+                title: "{{ lang._('Confirm Mark Safe') }}",
+                message: "{{ lang._('Are you sure you want to mark ') }}" + ip + "{{ lang._(' as safe? It will still appear in the threats list but marked as safe.') }}",
+                type: BootstrapDialog.TYPE_INFO,
+                callback: function(confirmed) {
+                    if (confirmed) {
+                        $.ajax({
+                            url: '/api/abuseipdbchecker/service/marksafe',
+                            type: 'POST',
+                            data: JSON.stringify({'ip': ip, 'marked_by': 'admin'}),
+                            contentType: 'application/json',
+                            success: function(data) {
+                                if (data.status === 'ok') {
+                                    BootstrapDialog.show({
+                                        type: BootstrapDialog.TYPE_SUCCESS,
+                                        title: "{{ lang._('Success') }}",
+                                        message: "{{ lang._('IP ') }}" + ip + "{{ lang._(' has been marked as safe.') }}"
+                                    });
+                                    updateThreats(); // Refresh threats list
+                                    updateStats(); // Update statistics
+                                } else {
+                                    BootstrapDialog.show({
+                                        type: BootstrapDialog.TYPE_DANGER,
+                                        title: "{{ lang._('Error') }}",
+                                        message: data.message || "{{ lang._('Failed to mark IP as safe') }}"
+                                    });
+                                }
+                            },
+                            error: function() {
+                                BootstrapDialog.show({
+                                    type: BootstrapDialog.TYPE_DANGER,
+                                    title: "{{ lang._('Error') }}",
+                                    message: "{{ lang._('Failed to communicate with server') }}"
+                                });
+                            }
+                        });
+                    }
+                }
+            });
+        }
+        
+        function unmarkIpSafe(ip) {
+            BootstrapDialog.confirm({
+                title: "{{ lang._('Confirm Unmark Safe') }}",
+                message: "{{ lang._('Are you sure you want to restore threat status for ') }}" + ip + "{{ lang._('? It will no longer be marked as safe.') }}",
+                type: BootstrapDialog.TYPE_WARNING,
+                callback: function(confirmed) {
+                    if (confirmed) {
+                        $.ajax({
+                            url: '/api/abuseipdbchecker/service/unmarksafe',
+                            type: 'POST',
+                            data: JSON.stringify({'ip': ip}),
+                            contentType: 'application/json',
+                            success: function(data) {
+                                if (data.status === 'ok') {
+                                    BootstrapDialog.show({
+                                        type: BootstrapDialog.TYPE_SUCCESS,
+                                        title: "{{ lang._('Success') }}",
+                                        message: "{{ lang._('IP ') }}" + ip + "{{ lang._(' threat status has been restored.') }}"
+                                    });
+                                    updateThreats(); // Refresh threats list
+                                    updateStats(); // Update statistics
+                                } else {
+                                    BootstrapDialog.show({
+                                        type: BootstrapDialog.TYPE_DANGER,
+                                        title: "{{ lang._('Error') }}",
+                                        message: data.message || "{{ lang._('Failed to unmark IP as safe') }}"
+                                    });
+                                }
+                            },
+                            error: function() {
+                                BootstrapDialog.show({
+                                    type: BootstrapDialog.TYPE_DANGER,
+                                    title: "{{ lang._('Error') }}",
+                                    message: "{{ lang._('Failed to communicate with server') }}"
+                                });
+                            }
+                        });
+                    }
+                }
+            });
+        }
+
+        // Enhanced updateThreats with pagination and search
+        function updateThreats(page = null, search = null) {
+            if (page !== null) currentPages.threats = page;
+            if (search !== null) currentSearch.threats = search;
+            
+            $("#threats-info").show().text("{{ lang._('Loading threats...') }}");
+            $("#recent-threats-table").empty();
+            
+            var params = {
+                page: currentPages.threats,
+                limit: 20,
+                search: currentSearch.threats,
+                include_marked_safe: 'true'
+            };
+            
+            $.get('/api/abuseipdbchecker/service/threats', params, function(data) {
+                $("#threats-info").hide();
+                
+                if (data && data.status === 'ok' && data.threats) {
+                    var threatTable = $("#recent-threats-table");
+                    threatTable.empty();
+                    
+                    if (data.threats.length === 0) {
+                        threatTable.append('<tr><td colspan="7">{{ lang._("No threats found") }}</td></tr>');
+                    } else {
+                        $("#threats-info").removeClass("alert-info alert-danger")
+                            .addClass("alert-success")
+                            .text("{{ lang._('Found ') }}" + data.total_count + "{{ lang._(' threats (page ') }}" + 
+                                 currentPages.threats + "{{ lang._(' of ') }}" + (data.pagination ? data.pagination.total_pages : 1) + ")")
+                            .show();
+                        
+                        $.each(data.threats, function(i, threat) {
+                            var row = $('<tr>');
+                            
+                            // Add special styling for marked safe
+                            if (threat.marked_safe) {
+                                row.addClass('info');
+                            }
+                            
+                            row.append($('<td>').text(threat.ip));
+                            
+                            var statusCell = $('<td>');
+                            statusCell.html(getThreatStatusBadge(threat.threat_level, threat.score, threat.marked_safe));
+                            row.append(statusCell);
+                            
+                            row.append($('<td>').text(threat.last_seen));
+                            row.append($('<td>').html(getCountryDisplay(threat.country)));
+                            row.append($('<td>').html(formatPortInfo(threat.destination_port)));
+                            row.append($('<td>').text(threat.reports || 0));
+                            
+                            var actionsCell = $('<td>');
+                            var actionButtons = '';
+                            
+                            if (threat.marked_safe) {
+                                actionButtons += '<button class="btn btn-xs btn-warning unmark-safe-btn" data-ip="' + threat.ip + '" title="Restore threat status">{{ lang._("Unmark Safe") }}</button> ';
+                                actionButtons += '<span class="text-muted">{{ lang._("Marked by ") }}' + threat.marked_safe_by + '</span>';
+                            } else {
+                                actionButtons += '<button class="btn btn-xs btn-info mark-safe-btn" data-ip="' + threat.ip + '" title="Mark as safe">{{ lang._("Mark Safe") }}</button> ';
+                                actionButtons += '<button class="btn btn-xs btn-danger remove-ip-btn" data-ip="' + threat.ip + '" title="Remove completely">{{ lang._("Remove") }}</button> ';
+                            }
+                            
+                            actionButtons += '<a href="https://www.abuseipdb.com/check/' + threat.ip + '" target="_blank" class="btn btn-xs btn-primary">{{ lang._("View Details") }}</a>';
+                            
+                            actionsCell.html(actionButtons);
+                            row.append(actionsCell);
+                            
+                            threatTable.append(row);
+                        });
+                        
+                        // Bind action button events
+                        $('.mark-safe-btn').click(function() {
+                            markIpSafe($(this).data('ip'));
+                        });
+                        
+                        $('.unmark-safe-btn').click(function() {
+                            unmarkIpSafe($(this).data('ip'));
+                        });
+                        
+                        $('.remove-ip-btn').click(function() {
+                            removeIpFromThreats($(this).data('ip'));
+                        });
+                        
+                        // Create pagination controls
+                        if (data.pagination) {
+                            createPaginationControls('threats-pagination', data.pagination, function(page) {
+                                updateThreats(page);
+                            });
+                        }
+                    }
+                } else {
+                    $("#threats-info").removeClass("alert-info alert-success")
+                        .addClass("alert-danger")
+                        .text(data.message || "{{ lang._('Error retrieving threats') }}")
+                        .show();
+                    $("#recent-threats-table").append('<tr><td colspan="7">{{ lang._("Error loading threats") }}</td></tr>');
+                }
+            }).fail(function() {
+                console.log('Threats update failed');
+                $("#threats-info").removeClass("alert-info alert-success")
+                    .addClass("alert-danger")
+                    .text("{{ lang._('Failed to communicate with server') }}")
+                    .show();
+            });
+        }
+
+        // Enhanced updateAllScannedIPs with pagination and search
+        function updateAllScannedIPs(page = null, search = null) {
+            if (page !== null) currentPages.allscannedips = page;
+            if (search !== null) currentSearch.allscannedips = search;
+            
+            $("#all-scanned-ips-info").show().text("{{ lang._('Loading all scanned IPs...') }}");
+            $("#all-scanned-ips-table").empty();
+            
+            var params = {
+                page: currentPages.allscannedips,
+                limit: 20,
+                search: currentSearch.allscannedips
+            };
+            
+            $.get('/api/abuseipdbchecker/service/allips', params, function(data) {
+                $("#all-scanned-ips-info").hide();
+                
+                if (data && data.status === 'ok' && data.ips) {
+                    var ipTable = $("#all-scanned-ips-table");
+                    ipTable.empty();
+                    
+                    if (data.ips.length === 0) {
+                        ipTable.append('<tr><td colspan="7">{{ lang._("No IPs have been scanned yet") }}</td></tr>');
+                    } else {
+                        $("#all-scanned-ips-info").removeClass("alert-info alert-danger")
+                            .addClass("alert-success")
+                            .text("{{ lang._('Found ') }}" + data.total_count + "{{ lang._(' scanned IPs (page ') }}" + 
+                                 currentPages.allscannedips + "{{ lang._(' of ') }}" + (data.pagination ? data.pagination.total_pages : 1) + ")")
+                            .show();
+                        
+                        $.each(data.ips, function(i, ipData) {
+                            var row = $('<tr>');
+                            
+                            // Add special styling for marked safe
+                            if (ipData.marked_safe) {
+                                row.addClass('info');
+                            }
+                            
+                            row.append($('<td>').text(ipData.ip));
+                            
+                            var statusCell = $('<td>');
+                            statusCell.html(getThreatStatusBadge(ipData.threat_level, ipData.abuse_score, ipData.marked_safe));
+                            row.append(statusCell);
+                            
+                            row.append($('<td>').text(ipData.last_checked));
+                            row.append($('<td>').html(getCountryDisplay(ipData.country)));
+                            row.append($('<td>').html(formatPortInfo(ipData.destination_port)));
+                            row.append($('<td>').text(ipData.reports || 0));
+                            
+                            var actionsCell = $('<td>');
+                            actionsCell.html(
+                                '<button class="btn btn-xs btn-primary test-ip-btn" data-ip="' + ipData.ip + '">{{ lang._("Re-test") }}</button> ' +
+                                '<a href="https://www.abuseipdb.com/check/' + ipData.ip + '" target="_blank" class="btn btn-xs btn-info">{{ lang._("View Details") }}</a>'
+                            );
+                            row.append(actionsCell);
+                            
+                            ipTable.append(row);
+                        });
+                        
+                        $('.test-ip-btn').click(function() {
+                            var ip = $(this).data('ip');
+                            $("#ipToTest").val(ip);
+                            $('a[href="#testip"]').tab('show');
+                            $("#testIpBtn").click();
+                        });
+                        
+                        // Create pagination controls
+                        if (data.pagination) {
+                            createPaginationControls('allips-pagination', data.pagination, function(page) {
+                                updateAllScannedIPs(page);
+                            });
+                        }
+                    }
+                } else {
+                    $("#all-scanned-ips-info").removeClass("alert-info alert-success")
+                        .addClass("alert-danger")
+                        .text(data.message || "{{ lang._('Error retrieving scanned IPs') }}")
+                        .show();
+                    $("#all-scanned-ips-table").append('<tr><td colspan="7">{{ lang._("Error loading scanned IPs") }}</td></tr>');
+                }
+            }).fail(function() {
+                console.log('All scanned IPs update failed');
+                $("#all-scanned-ips-info").removeClass("alert-info alert-success")
+                    .addClass("alert-danger")
+                    .text("{{ lang._('Failed to communicate with server') }}")
+                    .show();
+            });
+        }
+        
+        // Search functionality
+        $('#threats-search').on('keyup', function() {
+            var searchTerm = $(this).val().trim();
+            currentPages.threats = 1; // Reset to first page
+            updateThreats(1, searchTerm);
+        });
+        
+        $('#allips-search').on('keyup', function() {
+            var searchTerm = $(this).val().trim();
+            currentPages.allscannedips = 1; // Reset to first page
+            updateAllScannedIPs(1, searchTerm);
+        });
+
         // Load initial data
         var data_get_map = {
             'frm_general': "/api/abuseipdbchecker/settings/get",
@@ -99,6 +507,7 @@
             updateStats();
         });
 
+        // Save Settings Function
         $("#saveAct").click(function() {
             console.log("Save button clicked");
     
@@ -117,13 +526,12 @@
                 }
             });
 
-            // Enhanced validation - Remove enabled check
+            // Enhanced validation
             var apiKey = $("#abuseipdbchecker\\.api\\.Key").val();
             var dailyLimit = $("#abuseipdbchecker\\.api\\.DailyCheckLimit").val();
             var opnApiKey = $("#abuseipdbchecker\\.general\\.ApiKey").val();
             var opnApiSecret = $("#abuseipdbchecker\\.general\\.ApiSecret").val();
             
-            // Always validate since service is running
             if (!apiKey || apiKey === "YOUR_API_KEY") {
                 $("#saveAct_progress").removeClass("fa fa-spinner fa-pulse");
                 BootstrapDialog.show({
@@ -274,15 +682,6 @@
                         updateAllScannedIPs();
                         updateLogs();
                         updateExternalIPs();
-                        
-                        setTimeout(function() {
-                            if ($("#external-ips-info").is(":visible")) {
-                                $("#external-ips-info").removeClass("alert-success alert-warning alert-danger")
-                                    .addClass("alert-info")
-                                    .text("{{ lang._('External IPs updated - IP ') }}" + data.ip + "{{ lang._(' status refreshed') }}")
-                                    .fadeIn().delay(3000).fadeOut();
-                            }
-                        }, 500);
 
                     } else {
                         $("#testResultAlert").removeClass("alert-info alert-success alert-warning")
@@ -298,23 +697,6 @@
                     if (xhr.status) {
                         errorMsg += " (HTTP " + xhr.status + ")";
                     }
-                    if (xhr.responseText) {
-                        try {
-                            var errorData = JSON.parse(xhr.responseText);
-                            if (errorData.message) {
-                                errorMsg = errorData.message;
-                            }
-                        } catch(e) {
-                            errorMsg += ": " + xhr.responseText.substring(0, 100);
-                        }
-                    }
-                    
-                    console.error("AJAX Error:", {
-                        status: xhr.status,
-                        statusText: xhr.statusText,
-                        responseText: xhr.responseText,
-                        error: error
-                    });
                     
                     $("#testResultAlert").removeClass("alert-info alert-success alert-warning")
                         .addClass("alert-danger")
@@ -323,6 +705,13 @@
                 }
             });
         });
+        
+        // Helper functions
+        function classifyThreatLevel(abuseScore) {
+            if (abuseScore < 40) return 0;
+            else if (abuseScore < 70) return 1;
+            else return 2;
+        }
         
         function updateExternalIPs() {
             $("#external-ips-info").show().text("{{ lang._('Loading external IPs...') }}");
@@ -376,12 +765,6 @@
                             $("#testIpBtn").click();
                         });
                     }
-                } else if (data && data.status === 'disabled') {
-                    $("#external-ips-info").removeClass("alert-info alert-success")
-                        .addClass("alert-warning")
-                        .text("{{ lang._('AbuseIPDBChecker is disabled. Enable it in General settings to see external IPs.') }}")
-                        .show();
-                    $("#external-ips-table").append('<tr><td colspan="5">{{ lang._("Service is disabled") }}</td></tr>');
                 } else {
                     $("#external-ips-info").removeClass("alert-info alert-success")
                         .addClass("alert-danger")
@@ -392,71 +775,11 @@
             });
         }
 
-        function updateAllScannedIPs() {
-            $("#all-scanned-ips-info").show().text("{{ lang._('Loading all scanned IPs...') }}");
-            $("#all-scanned-ips-table").empty();
-            
-            ajaxCall("/api/abuseipdbchecker/service/allips", {}, function(data) {
-                $("#all-scanned-ips-info").hide();
-                
-                if (data && data.status === 'ok' && data.ips) {
-                    var ipTable = $("#all-scanned-ips-table");
-                    ipTable.empty();
-                    
-                    if (data.ips.length === 0) {
-                        ipTable.append('<tr><td colspan="6">{{ lang._("No IPs have been scanned yet") }}</td></tr>');
-                    } else {
-                        $("#all-scanned-ips-info").removeClass("alert-info alert-danger")
-                            .addClass("alert-success")
-                            .text("{{ lang._('Found ') }}" + data.total_count + "{{ lang._(' scanned IPs') }}")
-                            .show();
-                        
-                        $.each(data.ips, function(i, ipData) {
-                            var row = $('<tr>');
-                            row.append($('<td>').text(ipData.ip));
-                            
-                            var statusCell = $('<td>');
-                            var threatLevel = ipData.threat_level !== undefined ? ipData.threat_level : classifyThreatLevel(ipData.abuse_score);
-                            statusCell.html(getThreatStatusBadge(threatLevel, ipData.abuse_score));
-                            row.append(statusCell);
-                            
-                            row.append($('<td>').text(ipData.last_checked));
-                            row.append($('<td>').html(getCountryDisplay(ipData.country)));
-                            row.append($('<td>').text(ipData.reports || 0));
-                            
-                            var actionsCell = $('<td>');
-                            actionsCell.html(
-                                '<button class="btn btn-xs btn-primary test-ip-btn" data-ip="' + ipData.ip + '">{{ lang._("Re-test") }}</button> ' +
-                                '<a href="https://www.abuseipdb.com/check/' + ipData.ip + '" target="_blank" class="btn btn-xs btn-info">{{ lang._("View Details") }}</a>'
-                            );
-                            row.append(actionsCell);
-                            
-                            ipTable.append(row);
-                        });
-                        
-                        $('.test-ip-btn').click(function() {
-                            var ip = $(this).data('ip');
-                            $("#ipToTest").val(ip);
-                            $('a[href="#testip"]').tab('show');
-                            $("#testIpBtn").click();
-                        });
-                    }
-                } else {
-                    $("#all-scanned-ips-info").removeClass("alert-info alert-success")
-                        .addClass("alert-danger")
-                        .text(data.message || "{{ lang._('Error retrieving scanned IPs') }}")
-                        .show();
-                    $("#all-scanned-ips-table").append('<tr><td colspan="6">{{ lang._("Error loading scanned IPs") }}</td></tr>');
-                }
-            });
-        }
-
         function updateStats() {
             ajaxCall("/api/abuseipdbchecker/service/stats", {}, function(data) {
                 if (data && data.status === 'ok') {
                     $("#total-ips-checked").text(data.total_ips || 0);
                     $("#total-threats").text(data.total_threats || 0);
-                    // Add breakdown info if available
                     if (data.threat_breakdown) {
                         $("#total-threats").attr('title', data.threat_breakdown);
                     }
@@ -465,37 +788,6 @@
                 }
             }, function() {
                 console.log('Stats update failed');
-            });
-        }
-
-        function updateThreats() {
-            ajaxCall("/api/abuseipdbchecker/service/threats", {}, function(data) {
-                if (data && data.status === 'ok' && data.threats) {
-                    var threatTable = $("#recent-threats-table");
-                    threatTable.empty();
-                    
-                    if (data.threats.length === 0) {
-                        threatTable.append('<tr><td colspan="6">{{ lang._("No threats detected") }}</td></tr>');
-                    } else {
-                        $.each(data.threats, function(i, threat) {
-                            var row = $('<tr>');
-                            row.append($('<td>').text(threat.ip));
-                            
-                            var statusCell = $('<td>');
-                            var threatLevel = threat.score >= 70 ? 2 : (threat.score >= 40 ? 1 : 0);
-                            statusCell.html(getThreatStatusBadge(threatLevel, threat.score));
-                            row.append(statusCell);
-                            
-                            row.append($('<td>').text(threat.last_seen));
-                            row.append($('<td>').html(getCountryDisplay(threat.country)));
-                            row.append($('<td>').text(threat.reports || 0));
-                            row.append($('<td>').html('<a href="https://www.abuseipdb.com/check/' + threat.ip + '" target="_blank" class="btn btn-xs btn-danger">{{ lang._("View Details") }}</a>'));
-                            threatTable.append(row);
-                        });
-                    }
-                }
-            }, function() {
-                console.log('Threats update failed');
             });
         }
 
@@ -517,33 +809,7 @@
             });
         }
 
-        function refreshServiceStatus() {
-            if (document.hidden) {
-                return;
-            }
-            
-            $.ajax({
-                url: '/api/abuseipdbchecker/service/status',
-                type: 'POST',
-                dataType: 'json',
-                timeout: 5000,
-                success: function(data) {
-                    if (data && data.status === 'running') {
-                        $('.service-abuseipdbchecker .service-status').removeClass('text-danger').addClass('text-success').text('Running');
-                        $('.service-abuseipdbchecker .btn-start').prop('disabled', true);
-                        $('.service-abuseipdbchecker .btn-stop').prop('disabled', false);
-                    } else {
-                        $('.service-abuseipdbchecker .service-status').removeClass('text-success').addClass('text-danger').text('Stopped');
-                        $('.service-abuseipdbchecker .btn-start').prop('disabled', false);
-                        $('.service-abuseipdbchecker .btn-stop').prop('disabled', true);
-                    }
-                },
-                error: function() {
-                    console.log('Service status check failed - daemon may be starting');
-                }
-            });
-        }
-
+        // Service Management Functions
         function updateServiceStatus() {
             $.ajax({
                 url: '/api/abuseipdbchecker/service/status',
@@ -659,11 +925,6 @@
             var errors = [];
             var warnings = [];
             
-            var enabled = $("#abuseipdbchecker\\.general\\.Enabled").prop('checked');
-            if (!enabled) {
-                warnings.push('{{ lang._("Service is disabled") }}');
-            }
-            
             var abuseApiKey = $("#abuseipdbchecker\\.api\\.Key").val();
             if (!abuseApiKey || abuseApiKey === "YOUR_API_KEY") {
                 errors.push('{{ lang._("AbuseIPDB API key is required") }}');
@@ -714,30 +975,8 @@
             });
         });
 
-        updateServiceStatus();
-        setInterval(updateServiceStatus, 15000);
-
-        var statusInterval = setInterval(refreshServiceStatus, 10000);
-
-        document.addEventListener('visibilitychange', function() {
-            if (document.hidden) {
-                clearInterval(statusInterval);
-            } else {
-                statusInterval = setInterval(refreshServiceStatus, 10000);
-                refreshServiceStatus();
-            }
-        });
-
-        refreshServiceStatus();
-        
-        $("#refreshStats").click(updateStats);
-        $("#refreshExternalIPs").click(updateExternalIPs);
-        $("#refreshAllScannedIPs").click(updateAllScannedIPs);
-        $("#refreshThreats").click(updateThreats);
-        $("#refreshLogs").click(updateLogs);
-
+        // Tab change handlers
         var lastTabUpdate = {};
-        
         $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
             var target = $(e.target).attr("href");
             var now = Date.now();
@@ -761,10 +1000,34 @@
             }
         });
         
+        // Enhanced refresh functions
+        $("#refreshStats").click(updateStats);
+        $("#refreshExternalIPs").click(updateExternalIPs);
+        $("#refreshLogs").click(updateLogs);
+        
+        $("#refreshThreats").click(function() {
+            currentPages.threats = 1;
+            currentSearch.threats = '';
+            $('#threats-search').val('');
+            updateThreats();
+        });
+        
+        $("#refreshAllScannedIPs").click(function() {
+            currentPages.allscannedips = 1;
+            currentSearch.allscannedips = '';
+            $('#allips-search').val('');
+            updateAllScannedIPs();
+        });
+        
+        // Initialize service status monitoring
+        updateServiceStatus();
+        setInterval(updateServiceStatus, 15000);
+        
+        // Initialize all data
         updateStats();
         updateExternalIPs();
-        updateAllScannedIPs();
         updateThreats();
+        updateAllScannedIPs();
         updateLogs();
     });
 </script>
@@ -796,9 +1059,27 @@
         border-radius: 2px;
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
+    
+    /* Enhanced styling for marked safe rows */
+    .table tbody tr.info {
+        background-color: #d9edf7;
+    }
+    
+    .pagination {
+        margin: 10px 0;
+    }
+    
+    .search-container {
+        margin-bottom: 15px;
+    }
+    
+    .search-container input {
+        width: 100%;
+        max-width: 300px;
+    }
 </style>
     
-<!-- Main Settings Tabs (Email removed) -->
+<!-- Main Settings Tabs -->
 <ul class="nav nav-tabs" role="tablist" id="maintabs">
     <li class="active"><a data-toggle="tab" href="#general">{{ lang._('General') }}</a></li>
     <li><a data-toggle="tab" href="#network">{{ lang._('Network') }}</a></li>
@@ -829,6 +1110,7 @@
         </div>
     </div>
 
+    <!-- Alias Settings -->
     <div id="alias" class="tab-pane fade">
         <div class="content-box">
             {{ partial("layout_partials/base_form",['fields':aliasForm,'id':'frm_alias','parent':'abuseipdbchecker']) }}
@@ -924,7 +1206,7 @@
     </div>
 </div>
 
-<!-- Statistics & Monitoring Section -->
+<!-- Enhanced Statistics & Monitoring Section -->
 <div class="content-box" style="margin-top: 20px;">
     <ul class="nav nav-tabs" data-tabs="tabs" id="abuseipdb-tabs">
         <li class="active"><a data-toggle="tab" href="#stats">{{ lang._('Statistics') }}</a></li>
@@ -1010,16 +1292,21 @@
                 </div>
             </div>
         </div>
-
-        <!-- All Scanned IPs Tab -->
+        
+        <!-- Enhanced All Scanned IPs Tab -->
         <div id="allscannedips" class="tab-pane fade">
             <div class="container-fluid">
                 <div class="row">
-                    <div class="col-md-12">
+                    <div class="col-md-6">
+                        <div class="search-container">
+                            <input type="text" id="allips-search" class="form-control" placeholder="{{ lang._('Search by IP address...') }}">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
                         <button id="refreshAllScannedIPs" class="btn btn-xs btn-primary pull-right">
                             <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
                         </button>
-                        <p class="text-muted">{{ lang._('All IPs that have been checked against AbuseIPDB (both safe and malicious)') }}</p>
+                        <p class="text-muted">{{ lang._('All IPs checked against AbuseIPDB with ports they tried to access') }}</p>
                     </div>
                 </div>
                 <div class="row">
@@ -1034,6 +1321,7 @@
                                     <th>{{ lang._('Status') }}</th>
                                     <th>{{ lang._('Last Checked') }}</th>
                                     <th>{{ lang._('Country') }}</th>
+                                    <th>{{ lang._('Ports Accessed') }}</th>
                                     <th>{{ lang._('Reports') }}</th>
                                     <th>{{ lang._('Actions') }}</th>
                                 </tr>
@@ -1042,6 +1330,7 @@
                                 <!-- Dynamically populated -->
                             </tbody>
                         </table>
+                        <div id="allips-pagination"></div>
                     </div>
                 </div>
             </div>
@@ -1051,15 +1340,23 @@
         <div id="threats" class="tab-pane fade">
             <div class="container-fluid">
                 <div class="row">
-                    <div class="col-md-12">
+                    <div class="col-md-6">
+                        <div class="search-container">
+                            <input type="text" id="threats-search" class="form-control" placeholder="{{ lang._('Search by IP address...') }}">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
                         <button id="refreshThreats" class="btn btn-xs btn-primary pull-right">
                             <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
                         </button>
-                        <p class="text-muted">{{ lang._('Malicious IPs detected by AbuseIPDB checks') }}</p>
+                        <p class="text-muted">{{ lang._('Malicious IPs detected by AbuseIPDB checks with management options') }}</p>
                     </div>
                 </div>
                 <div class="row">
                     <div class="col-md-12">
+                        <div id="threats-info" class="alert alert-info" style="display: none;">
+                            {{ lang._('Loading threats...') }}
+                        </div>
                         <table class="table table-striped table-condensed">
                             <thead>
                                 <tr>
@@ -1067,6 +1364,7 @@
                                     <th>{{ lang._('Status') }}</th>
                                     <th>{{ lang._('Last Checked') }}</th>
                                     <th>{{ lang._('Country') }}</th>
+                                    <th>{{ lang._('Ports Accessed') }}</th>
                                     <th>{{ lang._('Reports') }}</th>
                                     <th>{{ lang._('Actions') }}</th>
                                 </tr>
@@ -1075,6 +1373,7 @@
                                 <!-- Dynamically populated -->
                             </tbody>
                         </table>
+                        <div id="threats-pagination"></div>
                     </div>
                 </div>
             </div>
@@ -1099,5 +1398,7 @@
                 </div>
             </div>
         </div>
+        
+        <!-- [Keep existing External IPs, Statistics, and Logs tabs unchanged] -->
     </div>
 </div>

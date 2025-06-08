@@ -1,8 +1,8 @@
 #!/usr/local/bin/python3
 
 """
-AbuseIPDB Checker - Main Orchestrator
-Compartmentalized version with modular architecture for easier debugging and maintenance
+AbuseIPDB Checker - Enhanced Main Orchestrator
+With IP management, pagination, search, and port tracking features
 """
 
 import os
@@ -40,7 +40,7 @@ except ImportError as e:
     sys.exit(1)
 
 class AbuseIPDBChecker:
-    """Main orchestrator class for all AbuseIPDB operations"""
+    """Enhanced main orchestrator class for all AbuseIPDB operations"""
     
     def __init__(self):
         # Initialize managers
@@ -53,8 +53,7 @@ class AbuseIPDBChecker:
         self.config = self.config_manager.get_config()
     
     def run_check(self):
-        """Run manual IP check from firewall logs"""
-        
+        """Run manual IP check from firewall logs with port extraction"""
         log_message("Starting manual IP check operation")
 
         validation = self.config_manager.validate_config()
@@ -62,11 +61,11 @@ class AbuseIPDBChecker:
             return {'status': 'error', 'message': f"Configuration errors: {', '.join(validation['errors'])}"}
         
         try:
-            # Parse firewall logs for external IPs
+            # Parse firewall logs for external IPs with ports
             parser = FirewallLogParser(self.config)
-            external_ips = parser.parse_log_for_ips()
+            external_connections = parser.parse_log_for_ips_with_ports()
             
-            if not external_ips:
+            if not external_connections:
                 self.db_manager.update_stat('last_check', get_db_timestamp())
                 return {'status': 'ok', 'message': 'No external IPs found to check'}
             
@@ -79,7 +78,7 @@ class AbuseIPDBChecker:
             
             # Initialize API client and process IPs
             api_client = AbuseIPDBClient(self.config)
-            result = self._process_manual_check(external_ips, api_client)
+            result = self._process_manual_check_with_ports(external_connections, api_client)
             
             log_message(f"Manual check completed: {result['ips_checked']} checked, {result['threats_detected']} threats")
             return result
@@ -89,15 +88,15 @@ class AbuseIPDBChecker:
             log_message(error_msg)
             return {'status': 'error', 'message': error_msg}
     
-    def _process_manual_check(self, external_ips, api_client):
-        """Process IPs for manual check"""
+    def _process_manual_check_with_ports(self, external_connections, api_client):
+        """Process IPs for manual check with port information"""
         threats_detected = 0
         ips_checked = 0
         
         daily_checks = int(self.db_manager.get_stat('daily_checks', '0'))
         daily_limit = self.config['daily_check_limit']
         
-        for ip in external_ips:
+        for ip, ports in external_connections.items():
             if daily_checks >= daily_limit:
                 break
             
@@ -110,7 +109,7 @@ class AbuseIPDBChecker:
                 # Check against API
                 report = api_client.check_ip(ip)
                 if report:
-                    result = self._process_ip_result(ip, report)
+                    result = self._process_ip_result_with_ports(ip, report, list(ports))
                     if result['is_threat']:
                         threats_detected += 1
                     ips_checked += 1
@@ -133,6 +132,207 @@ class AbuseIPDBChecker:
             'ips_checked': ips_checked,
             'threats_detected': threats_detected
         }
+    
+    def _process_ip_result_with_ports(self, ip, report, ports):
+        """Process API result and update database with port information"""
+        abuse_score = report.get('abuseConfidenceScore', 0)
+        threat_level = classify_threat_level(abuse_score, self.config)
+        country = report.get('countryCode', 'Unknown')
+        destination_port = ','.join(ports) if ports else ''
+        
+        # Update checked_ips table with port info
+        self.db_manager.update_checked_ip(ip, threat_level, country, destination_port)
+        
+        # Handle threats
+        is_threat = False
+        if threat_level >= 1:  # Suspicious or Malicious
+            categories = self._extract_categories(report)
+            self.db_manager.update_threat(ip, abuse_score, report.get('totalReports', 0), categories, country)
+            is_threat = True
+        else:
+            self.db_manager.remove_threat(ip)
+        
+        return {
+            'threat_level': threat_level,
+            'threat_text': get_threat_level_text(threat_level),
+            'abuse_score': abuse_score,
+            'is_threat': is_threat
+        }
+    
+    def remove_ip_from_threats(self, ip_address):
+        """Remove IP from threats table completely"""
+        log_message(f"Request to remove IP from threats: {ip_address}")
+        
+        try:
+            # Validate IP format
+            import ipaddress
+            ipaddress.ip_address(ip_address)
+            
+            # Remove from threats table
+            removed = self.db_manager.remove_threat(ip_address)
+            
+            if removed:
+                log_message(f"Successfully removed {ip_address} from threats table")
+                return {
+                    'status': 'ok',
+                    'message': f'IP {ip_address} removed from threats table',
+                    'ip': ip_address,
+                    'action': 'removed'
+                }
+            else:
+                return {
+                    'status': 'not_found',
+                    'message': f'IP {ip_address} was not found in threats table',
+                    'ip': ip_address
+                }
+                
+        except ValueError:
+            return {'status': 'error', 'message': f'Invalid IP address format: {ip_address}'}
+        except Exception as e:
+            error_msg = f"Error removing IP {ip_address}: {str(e)}"
+            log_message(error_msg)
+            return {'status': 'error', 'message': error_msg}
+    
+    def mark_ip_safe(self, ip_address, marked_by='admin'):
+        """Mark IP as safe (keeps in threats table but marked as safe)"""
+        log_message(f"Request to mark IP as safe: {ip_address} by {marked_by}")
+        
+        try:
+            # Validate IP format
+            import ipaddress
+            ipaddress.ip_address(ip_address)
+            
+            # Mark as safe in threats table
+            marked = self.db_manager.mark_ip_safe(ip_address, marked_by)
+            
+            if marked:
+                log_message(f"Successfully marked {ip_address} as safe by {marked_by}")
+                return {
+                    'status': 'ok',
+                    'message': f'IP {ip_address} marked as safe',
+                    'ip': ip_address,
+                    'marked_by': marked_by,
+                    'action': 'marked_safe'
+                }
+            else:
+                return {
+                    'status': 'not_found',
+                    'message': f'IP {ip_address} was not found in threats table',
+                    'ip': ip_address
+                }
+                
+        except ValueError:
+            return {'status': 'error', 'message': f'Invalid IP address format: {ip_address}'}
+        except Exception as e:
+            error_msg = f"Error marking IP {ip_address} as safe: {str(e)}"
+            log_message(error_msg)
+            return {'status': 'error', 'message': error_msg}
+    
+    def unmark_ip_safe(self, ip_address):
+        """Unmark IP as safe (restore threat status)"""
+        log_message(f"Request to unmark IP as safe: {ip_address}")
+        
+        try:
+            # Validate IP format
+            import ipaddress
+            ipaddress.ip_address(ip_address)
+            
+            # Unmark as safe in threats table
+            unmarked = self.db_manager.unmark_ip_safe(ip_address)
+            
+            if unmarked:
+                log_message(f"Successfully unmarked {ip_address} as safe - restored threat status")
+                return {
+                    'status': 'ok',
+                    'message': f'IP {ip_address} unmarked as safe - threat status restored',
+                    'ip': ip_address,
+                    'action': 'unmarked_safe'
+                }
+            else:
+                return {
+                    'status': 'not_found',
+                    'message': f'IP {ip_address} was not found in threats table',
+                    'ip': ip_address
+                }
+                
+        except ValueError:
+            return {'status': 'error', 'message': f'Invalid IP address format: {ip_address}'}
+        except Exception as e:
+            error_msg = f"Error unmarking IP {ip_address} as safe: {str(e)}"
+            log_message(error_msg)
+            return {'status': 'error', 'message': error_msg}
+    
+    def get_recent_threats(self, limit=20, offset=0, search_ip='', include_marked_safe=True):
+        """Get recent threats with pagination and search"""
+        try:
+            result = self.db_manager.get_recent_threats(limit, offset, search_ip, include_marked_safe)
+            
+            # Format threats for frontend
+            formatted_threats = []
+            for row in result['threats']:
+                threat_data = {
+                    'ip': row['ip'],
+                    'score': row['abuse_score'],
+                    'reports': row['reports'],
+                    'last_seen': row['last_seen'],
+                    'country': row['country'],
+                    'categories': row['categories'],
+                    'destination_port': row['destination_port'] or '',
+                    'marked_safe': bool(row['marked_safe']),
+                    'marked_safe_date': row['marked_safe_date'] or '',
+                    'marked_safe_by': row['marked_safe_by'] or ''
+                }
+                formatted_threats.append(threat_data)
+            
+            return {
+                'status': 'ok',
+                'threats': formatted_threats,
+                'total_count': result['total_count'],
+                'limit': limit,
+                'offset': offset
+            }
+            
+        except Exception as e:
+            log_message(f"Error retrieving recent threats: {str(e)}")
+            return {'status': 'error', 'message': f'Error retrieving threats: {str(e)}'}
+    
+    def get_all_checked_ips(self, limit=20, offset=0, search_ip=''):
+        """Get all checked IPs with pagination and search"""
+        try:
+            result = self.db_manager.get_all_checked_ips(limit, offset, search_ip)
+            
+            # Format IPs for frontend
+            formatted_ips = []
+            for row in result['ips']:
+                threat_level = row['threat_level'] or 0
+                ip_data = {
+                    'ip': row['ip'],
+                    'last_checked': row['last_checked'],
+                    'threat_level': threat_level,
+                    'threat_text': get_threat_level_text(threat_level),
+                    'check_count': row['check_count'],
+                    'abuse_score': row['abuse_score'] or 0,
+                    'reports': row['reports'] or 0,
+                    'country': row['country'] or 'Unknown',
+                    'categories': row['categories'] or '',
+                    'destination_port': row['destination_port'] or '',
+                    'marked_safe': bool(row['marked_safe']) if row['marked_safe'] is not None else False,
+                    'marked_safe_date': row['marked_safe_date'] or '',
+                    'marked_safe_by': row['marked_safe_by'] or ''
+                }
+                formatted_ips.append(ip_data)
+            
+            return {
+                'status': 'ok',
+                'ips': formatted_ips,
+                'total_count': result['total_count'],
+                'limit': limit,
+                'offset': offset
+            }
+            
+        except Exception as e:
+            log_message(f"Error retrieving all checked IPs: {str(e)}")
+            return {'status': 'error', 'message': f'Error retrieving checked IPs: {str(e)}'}
     
     def validate_configuration(self):
         """Validate configuration for service startup"""
@@ -232,8 +432,22 @@ class AbuseIPDBChecker:
             if not report:
                 return {'status': 'error', 'message': 'No response from AbuseIPDB API'}
             
-            # Process and store result
-            result = self._process_ip_result(ip_address, report)
+            # Process and store result with proper port handling
+            abuse_score = report.get('abuseConfidenceScore', 0)
+            threat_level = classify_threat_level(abuse_score, self.config)
+            country = report.get('countryCode', 'Unknown')
+            
+            # For manual IP tests, we don't have port info, so pass empty string
+            self.db_manager.update_checked_ip(ip_address, threat_level, country, '')
+            
+            # Handle threats
+            is_threat = False
+            if threat_level >= 1:  # Suspicious or Malicious
+                categories = self._extract_categories(report)
+                self.db_manager.update_threat(ip_address, abuse_score, report.get('totalReports', 0), categories, country)
+                is_threat = True
+            else:
+                self.db_manager.remove_threat(ip_address)
             
             # Update statistics
             daily_checks = int(self.db_manager.get_stat('daily_checks', '0'))
@@ -248,18 +462,19 @@ class AbuseIPDBChecker:
             response = {
                 "status": "ok",
                 "ip": ip_address,
-                "threat_level": result['threat_level'],
-                "threat_text": result['threat_text'],
-                "abuse_score": result['abuse_score'],
+                "threat_level": threat_level,
+                "threat_text": get_threat_level_text(threat_level),
+                "abuse_score": abuse_score,
                 "country": str(report.get("countryCode", "Unknown")),
                 "isp": str(report.get("isp", "Unknown")),
                 "domain": str(report.get("domain", "Unknown")),
                 "reports": report.get("totalReports", 0),
                 "last_reported": str(report.get("lastReportedAt", "Never")),
-                "last_checked": format_timestamp()
+                "last_checked": format_timestamp(),
+                "is_threat": is_threat
             }
             
-            log_message(f"Test completed for {ip_address}: {result['threat_text']} (Score: {result['abuse_score']})")
+            log_message(f"Test completed for {ip_address}: {get_threat_level_text(threat_level)} (Score: {abuse_score}%)")
             return response
             
         except APIAuthenticationError:
@@ -315,14 +530,6 @@ class AbuseIPDBChecker:
     def get_statistics(self):
         """Get comprehensive statistics"""
         return self.stats_manager.get_comprehensive_stats(self.config)
-    
-    def get_recent_threats(self):
-        """Get recent threats"""
-        return self.stats_manager.get_recent_threats()
-    
-    def get_all_checked_ips(self):
-        """Get all checked IPs"""
-        return self.stats_manager.get_all_checked_ips()
     
     def get_logs(self):
         """Get recent logs"""
@@ -485,24 +692,24 @@ class AbuseIPDBChecker:
             return {'status': 'error', 'message': error_msg}
 
 def main():
-    """Main entry point with compartmentalized architecture"""
-    startup_message = "AbuseIPDBChecker compartmentalized script startup"
+    """Enhanced main entry point with new IP management commands"""
+    startup_message = "AbuseIPDBChecker enhanced script startup"
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {startup_message}", file=sys.stderr)
     system_log(startup_message)
     
     try:
         # Ensure directories exist
         ensure_directories()
-        log_message("Compartmentalized script started successfully")
+        log_message("Enhanced script started successfully")
         
         # Parse arguments
-        parser = argparse.ArgumentParser(description='AbuseIPDB Checker - Compartmentalized')
+        parser = argparse.ArgumentParser(description='AbuseIPDB Checker - Enhanced')
         parser.add_argument('mode', choices=[
             'check', 'stats', 'threats', 'logs', 'testip', 'listips', 'debuglog', 
             'connections', 'daemon', 'batchstatus', 'allips', 'exportthreats',
-            'createalias', 'updatealias'
+            'createalias', 'updatealias', 'removeip', 'marksafe', 'unmarksafe'
         ], help='Operation mode')
-        parser.add_argument('ip', nargs='?', help='IP address to test (only for testip mode)')
+        parser.add_argument('args', nargs='*', help='Additional arguments based on mode')
         
         if len(sys.argv) < 2:
             parser.print_help()
@@ -514,7 +721,7 @@ def main():
         filtered_args = [arg for arg in sys.argv[1:] if arg != '%s']
         args = parser.parse_args(filtered_args)
         
-        log_message(f"Running in {args.mode} mode")
+        log_message(f"Running in {args.mode} mode with args: {args.args}")
         
         # Initialize checker
         checker = AbuseIPDBChecker()
@@ -525,14 +732,42 @@ def main():
         elif args.mode == 'stats':
             result = checker.get_statistics()
         elif args.mode == 'threats':
-            result = checker.get_recent_threats()
-        elif args.mode == 'logs':
-            result = checker.get_logs()
+            # Parse pagination arguments: limit, offset, search, include_marked_safe
+            limit = int(args.args[0]) if len(args.args) > 0 and args.args[0].isdigit() else 20
+            offset = int(args.args[1]) if len(args.args) > 1 and args.args[1].isdigit() else 0
+            search = args.args[2] if len(args.args) > 2 else ''
+            include_marked_safe = args.args[3] == '1' if len(args.args) > 3 else True
+            result = checker.get_recent_threats(limit, offset, search, include_marked_safe)
+        elif args.mode == 'allips':
+            # Parse pagination arguments: limit, offset, search
+            limit = int(args.args[0]) if len(args.args) > 0 and args.args[0].isdigit() else 20
+            offset = int(args.args[1]) if len(args.args) > 1 and args.args[1].isdigit() else 0
+            search = args.args[2] if len(args.args) > 2 else ''
+            result = checker.get_all_checked_ips(limit, offset, search)
         elif args.mode == 'testip':
-            if not args.ip:
+            if not args.args:
                 result = {'status': 'error', 'message': 'IP address is required for testip mode'}
             else:
-                result = checker.test_single_ip(args.ip)
+                result = checker.test_single_ip(args.args[0])
+        elif args.mode == 'removeip':
+            if not args.args:
+                result = {'status': 'error', 'message': 'IP address is required for removeip mode'}
+            else:
+                result = checker.remove_ip_from_threats(args.args[0])
+        elif args.mode == 'marksafe':
+            if not args.args:
+                result = {'status': 'error', 'message': 'IP address is required for marksafe mode'}
+            else:
+                ip = args.args[0]
+                marked_by = args.args[1] if len(args.args) > 1 else 'admin'
+                result = checker.mark_ip_safe(ip, marked_by)
+        elif args.mode == 'unmarksafe':
+            if not args.args:
+                result = {'status': 'error', 'message': 'IP address is required for unmarksafe mode'}
+            else:
+                result = checker.unmark_ip_safe(args.args[0])
+        elif args.mode == 'logs':
+            result = checker.get_logs()
         elif args.mode == 'listips':
             result = checker.list_external_ips()
         elif args.mode == 'debuglog':
@@ -541,8 +776,6 @@ def main():
             result = checker.list_connections()
         elif args.mode == 'batchstatus':
             result = checker.get_batch_status()
-        elif args.mode == 'allips':
-            result = checker.get_all_checked_ips()
         elif args.mode == 'exportthreats':
             result = checker.export_threats()
         elif args.mode == 'createalias':
