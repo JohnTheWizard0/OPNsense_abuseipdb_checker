@@ -200,14 +200,16 @@ class DatabaseManager:
             raise
 
     def _merge_connection_details(self, existing_details, new_details):
-        """Merge connection details, avoiding duplicates"""
-        # FIX: Ensure all inputs are strings
+        """Merge connection details, avoiding duplicates and HTML decoding"""
+        import html
+        
         try:
-            existing_str = str(existing_details) if existing_details else ''
-            new_str = str(new_details) if new_details else ''
+            # HTML decode both inputs
+            existing_str = html.unescape(str(existing_details)) if existing_details else ''
+            new_str = html.unescape(str(new_details)) if new_details else ''
         except Exception as e:
-            log_message(f"Warning: Could not convert connection details to string: {str(e)}")
-            return ''
+            log_message(f"Warning: Could not decode connection details: {str(e)}")
+            return str(new_details) if new_details else str(existing_details) if existing_details else ''
         
         if not existing_str:
             return new_str

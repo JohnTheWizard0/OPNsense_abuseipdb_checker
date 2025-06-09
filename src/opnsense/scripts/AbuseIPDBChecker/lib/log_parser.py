@@ -138,6 +138,7 @@ class FirewallLogParser:
             src_port = fields[20].strip() if len(fields) > 20 else ''
             dst_port = fields[21].strip() if len(fields) > 21 else ''
             
+            
             if not src_ip or not dst_ip:
                 return None
             
@@ -148,7 +149,7 @@ class FirewallLogParser:
                 src_port_str = src_port if src_port and src_port.isdigit() else 'unknown'
                 dst_port_str = dst_port if dst_port and dst_port.isdigit() else 'unknown'
                 
-                connection_string = f"{src_ip}:{src_port_str} -> {dst_ip}:{dst_port_str}"
+                connection_string = f"{src_ip}:{src_port_str} accessing {dst_ip}:{dst_port_str}"
                 
                 return {
                     'external_ip': external_ip,

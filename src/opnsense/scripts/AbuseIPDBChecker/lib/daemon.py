@@ -87,7 +87,8 @@ class DaemonManager:
                         genuinely_new_ports = new_ports_set - existing_ports
                         
                         if genuinely_new_ports:
-                            log_message(f"Poll #{poll_count}: IP {ip} accessed new ports: {list(genuinely_new_ports)}")
+                            formatted_connections = self._format_connection_strings(genuinely_new_ports)
+                            log_message(f"Poll #{poll_count}: IP {ip} | {formatted_connections}")
                         
                         # Add new ports and update last seen
                         ip_connections[ip]['ports'].update(new_ports_set)
@@ -119,6 +120,34 @@ class DaemonManager:
                 time.sleep(self.poll_interval)
         
         log_message("AbuseIPDB Checker daemon shutting down")
+
+    def _format_connection_strings(self, connection_strings):
+        """Format connection strings into clean port display format"""
+        formatted_parts = []
+        
+        for conn_str in connection_strings:
+            try:
+                # Parse connection string: "sourceIP:sourcePort -> destIP:destPort"
+                if '->' in conn_str:
+                    source_part, dest_part = conn_str.split(' -> ', 1)
+                    
+                    # Extract source port
+                    if ':' in source_part:
+                        source_port = source_part.split(':')[-1]
+                    else:
+                        source_port = 'unknown'
+                    
+                    # Format as "Port sourcePort -> destIP:destPort"
+                    formatted_parts.append(f"Port {source_port} accessing {dest_part}")
+                else:
+                    # Fallback for unexpected format
+                    formatted_parts.append(f"Connection: {conn_str}")
+                    
+            except Exception as e:
+                # Fallback on parsing error
+                formatted_parts.append(f"Connection: {conn_str}")
+        
+        return ', '.join(formatted_parts) + (',' if formatted_parts else '')
 
     def _collect_external_connections(self, config):
         """Collect external IPs with full connection details from firewall logs"""

@@ -1,6 +1,6 @@
 <script>
     // ================================
-    // UPDATE FUNCTIONS MODULE - FIXED
+    // UPDATE FUNCTIONS MODULE
     // ================================
     
     // Helper function to get country flag and name
