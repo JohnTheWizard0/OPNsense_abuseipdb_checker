@@ -152,22 +152,71 @@
                '<i class="fa fa-info-circle"></i>' +
                '</button>';
     }
-
+ 
     // Helper function to format connection details for popup
     function formatConnectionDetails(connectionDetails) {
-        if (!connectionDetails || connectionDetails === '') {
+        if (!connectionDetails || connectionDetails === '' || connectionDetails === 'NO_DATA') {
             return '<span class="text-muted">No connection details available</span>';
         }
         
-        // Split by pipe separator and format each connection
-        var connections = connectionDetails.split('|');
-        var formatted = connections.map(function(conn) {
-            return '<div class="connection-detail">' + conn + '</div>';
-        }).join('');
-        
-        return formatted;
+        try {
+            // Try to parse as JSON first (new format with timestamps)
+            if (connectionDetails.startsWith('{') || connectionDetails.startsWith('[')) {
+                var parsedData = JSON.parse(connectionDetails.replace(/'/g, '"'));
+                
+                if (parsedData.ports && Array.isArray(parsedData.ports)) {
+                    var formatted = '';
+                    parsedData.ports.forEach(function(conn, index) {
+                        formatted += '<div class="connection-detail">';
+                        formatted += '<strong>Connection ' + (index + 1) + ':</strong><br>';
+                        formatted += conn.replace(' accessing ', ' accessed ') + '<br>';
+                        if (parsedData.last_seen) {
+                            var timestamp = new Date(parsedData.last_seen * 1000);
+                            formatted += '<small class="text-muted">Time: ' + timestamp.toLocaleString() + '</small>';
+                        }
+                        formatted += '</div>';
+                    });
+                    return formatted;
+                } else if (parsedData.ports && typeof parsedData.ports === 'object') {
+                    // Handle set format like {'162.243.184.120:44394 accessing 192.168.1.13:443'}
+                    var connections = Object.keys(parsedData.ports);
+                    var formatted = '';
+                    connections.forEach(function(conn, index) {
+                        formatted += '<div class="connection-detail">';
+                        formatted += '<strong>Connection ' + (index + 1) + ':</strong><br>';
+                        formatted += conn.replace(' accessing ', ' accessed ') + '<br>';
+                        if (parsedData.last_seen) {
+                            var timestamp = new Date(parsedData.last_seen * 1000);
+                            formatted += '<small class="text-muted">Time: ' + timestamp.toLocaleString() + '</small>';
+                        }
+                        formatted += '</div>';
+                    });
+                    return formatted;
+                }
+            }
+            
+            // Fall back to pipe-separated format (legacy)
+            var connections = connectionDetails.split('|');
+            var formatted = '';
+            connections.forEach(function(conn, index) {
+                if (conn.trim()) {
+                    formatted += '<div class="connection-detail">';
+                    formatted += '<strong>Connection ' + (index + 1) + ':</strong><br>';
+                    formatted += conn.trim().replace(' accessing ', ' accessed ');
+                    formatted += '</div>';
+                }
+            });
+            
+            return formatted || '<span class="text-muted">No valid connection data found</span>';
+            
+        } catch (e) {
+            // If parsing fails, treat as plain text
+            return '<div class="connection-detail">' + 
+                connectionDetails.replace(' accessing ', ' accessed ') + 
+                '</div>';
+        }
     }
-    
+
     // Connection details popup handler
     function showConnectionDetails(ip, connectionDetails) {
         var content;
@@ -175,30 +224,33 @@
         
         if (!connectionDetails || connectionDetails === '' || connectionDetails === 'NO_DATA') {
             content = '<div class="connection-details-popup">' +
-                     '<div class="alert alert-warning">' +
-                     '<i class="fa fa-exclamation-triangle"></i> ' +
-                     '{{ lang._("No connection data available for this IP.") }}<br>' +
-                     '<small class="text-muted">{{ lang._("This IP was checked before connection tracking was implemented.") }}</small>' +
-                     '</div>' +
-                     '</div>';
+                    '<div class="alert alert-warning">' +
+                    '<i class="fa fa-exclamation-triangle"></i> ' +
+                    '{{ lang._("No connection data available for this IP.") }}<br>' +
+                    '<small class="text-muted">{{ lang._("This IP was checked before connection tracking was implemented.") }}</small>' +
+                    '</div>' +
+                    '</div>';
             dialogType = BootstrapDialog.TYPE_WARNING;
         } else {
             var formattedDetails = formatConnectionDetails(connectionDetails);
             content = '<div class="connection-details-popup">' +
-                     '<h5>{{ lang._("Source → Destination Connections:") }}</h5>' +
-                     formattedDetails +
-                     '<div class="text-muted" style="margin-top: 15px;">' +
-                     '<small><i class="fa fa-info-circle"></i> {{ lang._("Shows external IP connections to your internal network") }}</small>' +
-                     '</div>' +
-                     '</div>';
+                    '<h5><i class="fa fa-exchange"></i> {{ lang._("Network Connections:") }}</h5>' +
+                    '<div style="max-height: 400px; overflow-y: auto;">' +
+                    formattedDetails +
+                    '</div>' +
+                    '<div class="text-muted" style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px;">' +
+                    '<small><i class="fa fa-info-circle"></i> {{ lang._("Shows external IP connections to your internal network") }}</small>' +
+                    '</div>' +
+                    '</div>';
         }
         
         BootstrapDialog.show({
             type: dialogType,
-            title: "{{ lang._('Connection Details for ') }}" + ip,
+            title: '<i class="fa fa-server"></i> {{ lang._("Connection Details for ") }}' + ip,
             message: content,
+            size: BootstrapDialog.SIZE_NORMAL,
             buttons: [{
-                label: "{{ lang._('Close') }}",
+                label: '<i class="fa fa-times"></i> {{ lang._("Close") }}',
                 action: function(dialogRef) {
                     dialogRef.close();
                 }
