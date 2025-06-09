@@ -38,8 +38,8 @@
     <field>
         <id>abuseipdbchecker.ntfy.Priority</id>
         <label>Notification Priority</label>
-        <type>dropdown</type>
-        <help>ntfy notification priority level</help>
+        <type>text</type>
+        <help>ntfy notification priority level (1=Min, 2=Low, 3=Default, 4=High, 5=Max)</help>
     </field>
     <field>
         <id>abuseipdbchecker.ntfy.IncludeConnectionDetails</id>

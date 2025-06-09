@@ -40,30 +40,27 @@ class NtfyClient:
             return True
         
         return False
-    
     def send_threat_notification(self, ip_address, abuse_score, threat_level, country='Unknown', 
-                               connection_details='', is_new_threat=False):
+                            connection_details='', is_new_threat=False):
         """Send ntfy notification for detected threat"""
         
         if not self.should_notify(threat_level, abuse_score):
             return {'status': 'skipped', 'reason': 'notification disabled for this threat level'}
         
         try:
-            # Determine threat text and emoji
+            # Determine threat text and action (no emojis)
             if threat_level == 2:
                 threat_text = "MALICIOUS"
-                emoji = "🚨"
                 action = "Added to MaliciousIPs alias"
             elif threat_level == 1:
-                threat_text = "SUSPICIOUS"
-                emoji = "⚠️"
+                threat_text = "SUSPICIOUS" 
                 action = "Monitored (not blocked)"
             else:
                 return {'status': 'skipped', 'reason': 'threat level too low'}
             
-            # Build notification title
+            # Build notification title (no emojis)
             status_text = "NEW" if is_new_threat else "UPDATED"
-            title = f"{emoji} {status_text} {threat_text} IP Detected"
+            title = f"{status_text} {threat_text} IP Detected"
             
             # Build message content
             message_parts = [
@@ -81,28 +78,26 @@ class NtfyClient:
             
             message = "\n".join(message_parts)
             
-            # Prepare headers
+            # Prepare headers with explicit UTF-8
             headers = {
                 'Content-Type': 'text/plain; charset=utf-8',
-                'User-Agent': 'OPNsense-AbuseIPDB-Checker/1.0'
+                'User-Agent': 'OPNsense-AbuseIPDB-Checker/1.0',
+                'Title': title,
+                'Priority': str(self.priority),
+                'Tags': 'warning,security,firewall'
             }
             
             # Add authentication if token provided
             if self.token:
                 headers['Authorization'] = f'Bearer {self.token}'
             
-            # Add ntfy-specific headers
-            headers['Title'] = title
-            headers['Priority'] = str(self.priority)
-            headers['Tags'] = 'warning,security,firewall'
-            
             # Add click action to view IP details
             headers['Click'] = f'https://www.abuseipdb.com/check/{ip_address}'
             
-            # Send notification
+            # Send notification with explicit UTF-8 encoding
             response = requests.post(
                 self.url,
-                data=message.encode('utf-8'),
+                data=message.encode('utf-8'),  # Explicit UTF-8 encoding
                 headers=headers,
                 timeout=10
             )
@@ -186,7 +181,7 @@ class NtfyClient:
         except Exception as e:
             log_message(f"Error formatting connection details for ntfy: {str(e)}")
             return "Multiple connections"
-    
+   
     def test_notification(self):
         """Send test notification to verify configuration"""
         if not self.enabled:
@@ -196,7 +191,7 @@ class NtfyClient:
             headers = {
                 'Content-Type': 'text/plain; charset=utf-8',
                 'User-Agent': 'OPNsense-AbuseIPDB-Checker/1.0',
-                'Title': '🧪 AbuseIPDB Test Notification',
+                'Title': 'AbuseIPDB Test Notification',  # Remove emoji
                 'Priority': str(self.priority),
                 'Tags': 'test,security'
             }
@@ -214,7 +209,7 @@ class NtfyClient:
             
             response = requests.post(
                 self.url,
-                data=test_message.encode('utf-8'),
+                data=test_message.encode('utf-8'),  # Explicit UTF-8 encoding
                 headers=headers,
                 timeout=10
             )
@@ -244,7 +239,7 @@ class NtfyClient:
                 'message': error_msg,
                 'exception': str(e)
             }
-    
+
     def get_status(self):
         """Get current ntfy client status"""
         return {

@@ -154,10 +154,20 @@ class ConfigManager:
         if cp.has_option(section, 'NotifySuspicious'):
             self._config['ntfy_notify_suspicious'] = cp.get(section, 'NotifySuspicious') == '1'
         if cp.has_option(section, 'Priority'):
-            self._config['ntfy_priority'] = int(cp.get(section, 'Priority'))
+            try:
+                priority_val = cp.get(section, 'Priority')
+                # Handle option values like 'option3' -> 3
+                if priority_val.startswith('option'):
+                    priority_num = int(priority_val.replace('option', ''))
+                else:
+                    priority_num = int(priority_val)
+                # Clamp to valid range
+                self._config['ntfy_priority'] = max(1, min(5, priority_num))
+            except (ValueError, AttributeError):
+                self._config['ntfy_priority'] = 3  # Default fallback
         if cp.has_option(section, 'IncludeConnectionDetails'):
             self._config['ntfy_include_connection_details'] = cp.get(section, 'IncludeConnectionDetails') == '1'
-    
+
     def get_config(self):
         """Get the complete configuration dictionary"""
         return self._config.copy()
