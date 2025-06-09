@@ -613,23 +613,7 @@ class AbuseIPDBChecker:
             
         except Exception as e:
             return {'status': 'error', 'message': f'Error: {str(e)}'}
-    
-    def debug_log_parsing(self):
-        """Debug firewall log parsing"""
-        try:
-            parser = FirewallLogParser(self.config)
-            return parser.debug_log_parsing()
-        except Exception as e:
-            return {'status': 'error', 'message': f'Debug error: {str(e)}'}
-    
-    def list_connections(self):
-        """List external→internal connections"""
-        try:
-            parser = FirewallLogParser(self.config)
-            return parser.list_external_to_internal_connections()
-        except Exception as e:
-            return {'status': 'error', 'message': f'Error: {str(e)}'}
-    
+  
     def get_batch_status(self):
         """Get daemon batch processing status"""
         return self.daemon_manager.get_daemon_status()
@@ -701,8 +685,7 @@ def main():
         # Parse arguments
         parser = argparse.ArgumentParser(description='AbuseIPDB Checker - Enhanced')
         parser.add_argument('mode', choices=[
-            'check', 'stats', 'threats', 'logs', 'testip', 'listips', 'debuglog', 
-            'connections', 'daemon', 'batchstatus', 'allips', 'exportthreats',
+            'check', 'stats', 'threats', 'logs', 'testip', 'listips', 'daemon', 'batchstatus', 'allips', 'exportthreats',
             'createalias', 'updatealias', 'removeip', 'marksafe', 'unmarksafe'
         ], help='Operation mode')
         parser.add_argument('args', nargs='*', help='Additional arguments based on mode')
@@ -766,10 +749,6 @@ def main():
             result = checker.get_logs()
         elif args.mode == 'listips':
             result = checker.list_external_ips()
-        elif args.mode == 'debuglog':
-            result = checker.debug_log_parsing()
-        elif args.mode == 'connections':
-            result = checker.list_connections()
         elif args.mode == 'batchstatus':
             result = checker.get_batch_status()
         elif args.mode == 'exportthreats':

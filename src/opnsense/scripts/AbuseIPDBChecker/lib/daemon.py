@@ -122,32 +122,27 @@ class DaemonManager:
         log_message("AbuseIPDB Checker daemon shutting down")
 
     def _format_connection_strings(self, connection_strings):
-        """Format connection strings into clean port display format"""
-        formatted_parts = []
+        """Format connection strings efficiently"""
+        if not connection_strings:
+            return ""
         
-        for conn_str in connection_strings:
-            try:
-                # Parse connection string: "sourceIP:sourcePort -> destIP:destPort"
-                if '->' in conn_str:
-                    source_part, dest_part = conn_str.split(' -> ', 1)
-                    
-                    # Extract source port
-                    if ':' in source_part:
-                        source_port = source_part.split(':')[-1]
-                    else:
-                        source_port = 'unknown'
-                    
-                    # Format as "Port sourcePort -> destIP:destPort"
-                    formatted_parts.append(f"Port {source_port} accessing {dest_part}")
-                else:
-                    # Fallback for unexpected format
-                    formatted_parts.append(f"Connection: {conn_str}")
-                    
-            except Exception as e:
-                # Fallback on parsing error
-                formatted_parts.append(f"Connection: {conn_str}")
+        # Limit to 3 connections for logging efficiency 
+        limited = list(connection_strings)[:3]
+        formatted = []
         
-        return ', '.join(formatted_parts) + (',' if formatted_parts else '')
+        for conn_str in limited:
+            if '->' in conn_str:
+                source_part, dest_part = conn_str.split(' -> ', 1)
+                source_port = source_part.split(':')[-1] if ':' in source_part else 'unknown'
+                formatted.append(f"Port {source_port} accessing {dest_part}")
+            else:
+                formatted.append(f"Connection: {conn_str}")
+        
+        result = ', '.join(formatted)
+        if len(connection_strings) > 3:
+            result += f" (+{len(connection_strings)-3} more)"
+        
+        return result
 
     def _collect_external_connections(self, config):
         """Collect external IPs with full connection details from firewall logs"""
@@ -209,22 +204,6 @@ class DaemonManager:
         except Exception as e:
             log_message(f"Error in process_ip_batch_with_connections: {str(e)}")
             return {'status': 'error', 'message': f'Enhanced batch processing error: {str(e)}'}
-
-    def _filter_ips_for_checking_with_ports(self, ip_connections, config):
-        """Filter IPs that need to be checked based on frequency, keeping port info"""
-        ips_to_check = {}
-        
-        for ip, connection_info in ip_connections.items():
-            existing = self.db_manager.get_checked_ip(ip)
-            
-            if existing:
-                last_checked = datetime.strptime(existing['last_checked'], '%Y-%m-%d %H:%M:%S')
-                if last_checked > (datetime.now() - timedelta(days=config['check_frequency'])):
-                    continue
-            
-            ips_to_check[ip] = connection_info
-        
-        return ips_to_check
 
     def _filter_ips_for_checking_with_connections(self, ip_connections, config):
         """Filter IPs that need to be checked based on frequency, keeping connection info"""
@@ -326,10 +305,6 @@ class DaemonManager:
                     
             except Exception as e:
                 log_message(f"Error checking IP {ip}: {str(e)}")
-                # Log more details for debugging
-                log_message(f"Connection data type for {ip}: {type(connections)}")
-                if hasattr(connections, '__dict__'):
-                    log_message(f"Connection data content for {ip}: {str(connections)[:200]}")
                 continue
         
         return {
@@ -339,75 +314,7 @@ class DaemonManager:
             'new_threats_detected': new_threats_detected,
             'message': f'Enhanced batch processed: {ips_checked} checked, {threats_detected} threats ({new_threats_detected} new)'
         }
-
-    def _check_ips_with_api_and_ports(self, ips_to_check, config):
-        """Check IPs against AbuseIPDB API with port information tracking"""
-        # Import locally to avoid circular imports
-        from .api_client import AbuseIPDBClient
-        
-        api_client = AbuseIPDBClient(config)
-        threats_detected = 0
-        new_threats_detected = 0  # Track NEW threats only
-        ips_checked = 0
-        
-        for ip, connection_info in ips_to_check.items():
-            try:
-                ports = connection_info['ports']
-                port_list = list(ports) if isinstance(ports, set) else ports
-                
-                log_message(f"Checking IP: {ip} (accessed ports: {','.join(map(str, port_list))})")
-                
-                # Check if IP was previously a threat
-                existing_threat = self.db_manager.get_threat(ip)
-                was_threat = existing_threat is not None
-                
-                # Check against AbuseIPDB
-                report = api_client.check_ip(ip)
-                
-                if report:
-                    abuse_score = report.get('abuseConfidenceScore', 0)
-                    threat_level = classify_threat_level(abuse_score, config)
-                    country = report.get('countryCode', 'Unknown')
-                    
-                    # Format port information for database storage
-                    destination_ports = ','.join(map(str, sorted(port_list))) if port_list else ''
-                    
-                    # Update database with port information
-                    self.db_manager.update_checked_ip(ip, threat_level, country, destination_ports)
-                    
-                    # Handle threats
-                    if threat_level >= 1:  # Suspicious or Malicious
-                        categories = self._extract_categories(report)
-                        self.db_manager.update_threat(ip, abuse_score, report.get('totalReports', 0), categories, country)
-                        threats_detected += 1
-                        
-                        # Only count as NEW threat if it wasn't a threat before
-                        if not was_threat:
-                            new_threats_detected += 1
-                            log_message(f"🚨 NEW THREAT DETECTED: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)}, Ports: {destination_ports})")
-                        else:
-                            log_message(f"Updated existing threat: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)}, Ports: {destination_ports})")
-                    else:
-                        # Remove from threats if now safe
-                        if was_threat:
-                            log_message(f"IP now safe (removed from threats): {ip}")
-                        self.db_manager.remove_threat(ip)
-                    
-                    ips_checked += 1
-                    time.sleep(0.3)  # Rate limiting
-                    
-            except Exception as e:
-                log_message(f"Error checking IP {ip}: {str(e)}")
-                continue
-        
-        return {
-            'status': 'ok',
-            'ips_checked': ips_checked,
-            'threats_detected': threats_detected,
-            'new_threats_detected': new_threats_detected,
-            'message': f'Enhanced batch processed: {ips_checked} checked, {threats_detected} threats ({new_threats_detected} new)'
-        }
-    
+   
     def _extract_categories(self, report):
         """Extract categories from API report"""
         categories = ''
