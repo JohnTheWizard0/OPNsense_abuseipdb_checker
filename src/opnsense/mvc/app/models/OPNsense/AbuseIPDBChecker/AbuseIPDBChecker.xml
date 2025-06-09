@@ -5,7 +5,6 @@
     <version>1.0.0</version>
     <items>
         <general>
-            <!-- Enabled field REMOVED -->
             <LogFile type="TextField">
                 <default>/var/log/filter/latest.log</default>
                 <Required>N</Required>
@@ -39,12 +38,12 @@
             </IgnoreBlockedConnections>
             <ApiKey type="TextField">
                 <default></default>
-                <Required>Y</Required>
+                <Required>N</Required>
                 <description>OPNsense API Key for alias management</description>
             </ApiKey>
             <ApiSecret type="TextField">
                 <default></default>
-                <Required>Y</Required>
+                <Required>N</Required>
                 <description>OPNsense API Secret for alias management</description>
             </ApiSecret>
         </general>
@@ -63,7 +62,7 @@
         <api>
             <Key type="TextField">
                 <default>YOUR_API_KEY</default>
-                <Required>Y</Required>
+                <Required>N</Required>
                 <description>AbuseIPDB API Key</description>
             </Key>
             <Endpoint type="TextField">
