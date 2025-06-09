@@ -10,7 +10,8 @@
 			'frm_general': "/api/abuseipdbchecker/settings/get",
 			'frm_network': "/api/abuseipdbchecker/settings/get",
 			'frm_api': "/api/abuseipdbchecker/settings/get",
-			'frm_alias': "/api/abuseipdbchecker/settings/get"
+			'frm_alias': "/api/abuseipdbchecker/settings/get",
+			'frm_ntfy': "/api/abuseipdbchecker/settings/get"
 		};
 		
 		mapDataToFormUI(data_get_map).done(function() {

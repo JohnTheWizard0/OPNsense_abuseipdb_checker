@@ -670,7 +670,7 @@ class AbuseIPDBChecker:
             error_msg = f"Error updating alias via configd: {str(e)}"
             log_message(error_msg)
             return {'status': 'error', 'message': error_msg}
-        
+   
     def test_ntfy_configuration(self, server, topic, token='', priority='3'):
         """Test ntfy configuration with provided parameters"""
         log_message(f"Testing ntfy configuration: {server}/{topic}")
@@ -688,7 +688,7 @@ class AbuseIPDBChecker:
                 'ntfy_include_connection_details': True
             }
             
-            # Initialize ntfy client with test config
+            # Import and initialize ntfy client with test config
             from lib.ntfy_client import NtfyClient
             ntfy_client = NtfyClient(test_config)
             
@@ -718,7 +718,7 @@ def main():
         parser = argparse.ArgumentParser(description='AbuseIPDB Checker - Enhanced')
         parser.add_argument('mode', choices=[
             'check', 'stats', 'threats', 'logs', 'testip', 'listips', 'daemon', 'batchstatus', 'allips', 'exportthreats',
-            'createalias', 'updatealias', 'removeip', 'marksafe', 'unmarksafe'
+            'createalias', 'updatealias', 'removeip', 'marksafe', 'unmarksafe', 'testntfy'
         ], help='Operation mode')
         parser.add_argument('args', nargs='*', help='Additional arguments based on mode')
         
@@ -794,7 +794,7 @@ def main():
                 result = {'status': 'error', 'message': 'Server and topic are required for testntfy mode'}
             else:
                 server = args.args[0]
-                topic = args.args[1]
+                topic = args.args[1] 
                 token = args.args[2] if len(args.args) > 2 else ''
                 priority = args.args[3] if len(args.args) > 3 else '3'
                 result = checker.test_ntfy_configuration(server, topic, token, priority)
