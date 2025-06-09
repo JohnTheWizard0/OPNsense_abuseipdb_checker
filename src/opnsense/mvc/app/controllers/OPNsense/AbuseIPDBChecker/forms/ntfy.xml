@@ -1,0 +1,50 @@
+<form>
+    <field>
+        <id>abuseipdbchecker.ntfy.Enabled</id>
+        <label>Enable ntfy Notifications</label>
+        <type>checkbox</type>
+        <help>Enable ntfy notifications for threat detections</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.ntfy.Server</id>
+        <label>ntfy Server URL</label>
+        <type>text</type>
+        <help>ntfy server URL (e.g., https://ntfy.sh or your self-hosted server)</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.ntfy.Topic</id>
+        <label>Topic</label>
+        <type>text</type>
+        <help>ntfy topic name for notifications</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.ntfy.Token</id>
+        <label>Access Token</label>
+        <type>password</type>
+        <help>ntfy access token (optional, for private topics)</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.ntfy.NotifyMalicious</id>
+        <label>Notify on Malicious IPs</label>
+        <type>checkbox</type>
+        <help>Send notifications for malicious IPs (70%+ abuse score)</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.ntfy.NotifySuspicious</id>
+        <label>Notify on Suspicious IPs</label>
+        <type>checkbox</type>
+        <help>Send notifications for suspicious IPs (40-69% abuse score)</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.ntfy.Priority</id>
+        <label>Notification Priority</label>
+        <type>dropdown</type>
+        <help>ntfy notification priority level</help>
+    </field>
+    <field>
+        <id>abuseipdbchecker.ntfy.IncludeConnectionDetails</id>
+        <label>Include Connection Details</label>
+        <type>checkbox</type>
+        <help>Include port and connection information in notifications</help>
+    </field>
+</form>

@@ -108,7 +108,7 @@
 		};
 		
 		// Extract data from each form
-		["general", "network", "api", "alias"].forEach(function(section) {
+		["general", "network", "api", "alias", "ntfy"].forEach(function(section) {
 			var formData = getFormData("frm_" + section);
 			
 			if (formData && formData.abuseipdbchecker && formData.abuseipdbchecker[section]) {
@@ -157,6 +157,70 @@
 		
 		// Save settings if validation passes
 		saveSettings(data);
+	});
+
+	// ntfy Test Handler
+	$('#test-ntfy').click(function() {
+		var $button = $(this);
+		var $result = $('#ntfy-test-result');
+		
+		// Validate required fields
+		var enabled = $("#abuseipdbchecker\\.ntfy\\.Enabled").is(':checked');
+		var server = $("#abuseipdbchecker\\.ntfy\\.Server").val();
+		var topic = $("#abuseipdbchecker\\.ntfy\\.Topic").val();
+		
+		if (!enabled) {
+			$result.removeClass('alert-success alert-danger').addClass('alert-warning')
+				.text('{{ lang._("ntfy notifications are disabled. Enable them first.") }}')
+				.show();
+			return;
+		}
+		
+		if (!server || !topic) {
+			$result.removeClass('alert-success alert-warning').addClass('alert-danger')
+				.text('{{ lang._("Server URL and Topic are required.") }}')
+				.show();
+			return;
+		}
+		
+		// Disable button and show loading
+		$button.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> {{ lang._("Sending...") }}');
+		$result.hide();
+		
+		// Send test notification
+		$.ajax({
+			url: '/api/abuseipdbchecker/service/testntfy',
+			type: 'POST',
+			data: JSON.stringify({
+				server: server,
+				topic: topic,
+				token: $("#abuseipdbchecker\\.ntfy\\.Token").val(),
+				priority: $("#abuseipdbchecker\\.ntfy\\.Priority").val()
+			}),
+			contentType: 'application/json',
+			timeout: 15000,
+			success: function(data) {
+				$button.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> {{ lang._("Send Test Notification") }}');
+				
+				if (data.status === 'success') {
+					$result.removeClass('alert-danger alert-warning').addClass('alert-success')
+						.html('<i class="fa fa-check"></i> {{ lang._("Test notification sent successfully!") }}<br>' +
+								'<small>{{ lang._("Check your ntfy client for the test message.") }}</small>')
+						.show();
+				} else {
+					$result.removeClass('alert-success alert-warning').addClass('alert-danger')
+						.html('<i class="fa fa-exclamation-triangle"></i> {{ lang._("Test failed: ") }}' + 
+								(data.message || '{{ lang._("Unknown error") }}'))
+						.show();
+				}
+			},
+			error: function(xhr, status, error) {
+				$button.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> {{ lang._("Send Test Notification") }}');
+				$result.removeClass('alert-success alert-warning').addClass('alert-danger')
+					.html('<i class="fa fa-exclamation-triangle"></i> {{ lang._("Connection failed: ") }}' + error)
+					.show();
+			}
+		});
 	});
 
 	// Initialize configuration loading when document is ready

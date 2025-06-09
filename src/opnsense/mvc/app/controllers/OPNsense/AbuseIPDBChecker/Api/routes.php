@@ -19,6 +19,7 @@ $router->addRoute('/abuseipdbchecker/service/allips', 'OPNsense\AbuseIPDBChecker
 $router->addRoute('/abuseipdbchecker/service/updatealias', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'updatealiasAction');
 $router->addRoute('/abuseipdbchecker/service/exportthreats', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'exportthreatsAction');
 $router->addRoute('/abuseipdbchecker/service/testalias', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'testaliasAction');
+$router->addRoute('/abuseipdbchecker/service/testntfy', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'testntfyAction');
 
 // IP Management endpoints
 $router->addRoute('/abuseipdbchecker/service/removeip', 'OPNsense\AbuseIPDBChecker\Api\ServiceController', 'removeipAction');

@@ -27,6 +27,7 @@ try:
     from .log_parser import FirewallLogParser
     from .statistics import StatisticsManager
     from .daemon import DaemonManager
+    from .ntfy_client import NtfyClient
     
 except ImportError as e:
     import sys
@@ -48,5 +49,6 @@ __all__ = [
     'AbuseIPDBClient',
     'FirewallLogParser',
     'StatisticsManager',
-    'DaemonManager'
+    'DaemonManager',
+    'NtfyClient'
 ]

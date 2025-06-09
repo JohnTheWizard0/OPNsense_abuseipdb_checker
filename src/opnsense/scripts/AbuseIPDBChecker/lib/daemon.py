@@ -13,6 +13,7 @@ import json
 import subprocess
 from datetime import datetime, timedelta
 from .core_utils import log_message, classify_threat_level, get_threat_level_text
+from .ntfy_client import NtfyClient
 
 class DaemonManager:
     """Enhanced daemon operations with batch processing, alias updates, and port tracking"""
@@ -294,6 +295,35 @@ class DaemonManager:
                             log_message(f"🚨 NEW THREAT DETECTED: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)})")
                         else:
                             log_message(f"Updated existing threat: {ip} (Score: {abuse_score}%, Level: {get_threat_level_text(threat_level)})")
+
+                        # Initialize ntfy client if enabled
+                        ntfy_client = None
+                        if config.get('ntfy_enabled', False):
+                            try:
+                                ntfy_client = NtfyClient(config)
+                            except Exception as e:
+                                log_message(f"Failed to initialize ntfy client: {str(e)}")
+
+                        # In the threat detection loop, after the threat is processed, add:
+                        if ntfy_client and threat_level >= 1:
+                            try:
+                                # Send notification for detected threat
+                                ntfy_result = ntfy_client.send_threat_notification(
+                                    ip_address=ip,
+                                    abuse_score=abuse_score,
+                                    threat_level=threat_level,
+                                    country=country,
+                                    connection_details=connection_details,
+                                    is_new_threat=not was_threat
+                                )
+                                
+                                if ntfy_result['status'] == 'success':
+                                    log_message(f"ntfy notification sent for {ip}")
+                                elif ntfy_result['status'] != 'skipped':
+                                    log_message(f"ntfy notification failed for {ip}: {ntfy_result['message']}")
+                                    
+                            except Exception as e:
+                                log_message(f"Error sending ntfy notification for {ip}: {str(e)}")
                     else:
                         # Remove from threats if now safe
                         if was_threat:
@@ -303,6 +333,8 @@ class DaemonManager:
                     ips_checked += 1
                     time.sleep(0.3)  # Rate limiting
                     
+
+
             except Exception as e:
                 log_message(f"Error checking IP {ip}: {str(e)}")
                 continue

@@ -670,6 +670,38 @@ class AbuseIPDBChecker:
             error_msg = f"Error updating alias via configd: {str(e)}"
             log_message(error_msg)
             return {'status': 'error', 'message': error_msg}
+        
+    def test_ntfy_configuration(self, server, topic, token='', priority='3'):
+        """Test ntfy configuration with provided parameters"""
+        log_message(f"Testing ntfy configuration: {server}/{topic}")
+        
+        try:
+            # Create temporary config for testing
+            test_config = {
+                'ntfy_enabled': True,
+                'ntfy_server': server,
+                'ntfy_topic': topic,
+                'ntfy_token': token,
+                'ntfy_priority': int(priority),
+                'ntfy_notify_malicious': True,
+                'ntfy_notify_suspicious': True,
+                'ntfy_include_connection_details': True
+            }
+            
+            # Initialize ntfy client with test config
+            from lib.ntfy_client import NtfyClient
+            ntfy_client = NtfyClient(test_config)
+            
+            # Send test notification
+            result = ntfy_client.test_notification()
+            
+            log_message(f"ntfy test result: {result['status']}")
+            return result
+            
+        except Exception as e:
+            error_msg = f"ntfy test error: {str(e)}"
+            log_message(error_msg)
+            return {'status': 'error', 'message': error_msg}
 
 def main():
     """Enhanced main entry point with new IP management commands"""
@@ -757,6 +789,15 @@ def main():
             result = checker.create_malicious_ips_alias()
         elif args.mode == 'updatealias':
             result = checker.update_malicious_ips_alias()
+        elif args.mode == 'testntfy':
+            if len(args.args) < 2:
+                result = {'status': 'error', 'message': 'Server and topic are required for testntfy mode'}
+            else:
+                server = args.args[0]
+                topic = args.args[1]
+                token = args.args[2] if len(args.args) > 2 else ''
+                priority = args.args[3] if len(args.args) > 3 else '3'
+                result = checker.test_ntfy_configuration(server, topic, token, priority)
         elif args.mode == 'daemon':
             log_message("Starting daemon mode")
             checker.daemon_manager.start_daemon()

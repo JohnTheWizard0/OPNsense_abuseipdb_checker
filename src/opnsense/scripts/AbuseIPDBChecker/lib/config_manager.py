@@ -21,7 +21,6 @@ class ConfigManager:
     def _get_default_config(self):
         """Return default configuration values"""
         return {
-            # Remove 'enabled' from defaults
             'log_file': '/var/log/filter/latest.log',
             'check_frequency': 7,
             'suspicious_threshold': 40,
@@ -37,7 +36,15 @@ class ConfigManager:
             'alias_include_suspicious': False,
             'alias_max_recent_hosts': 500,
             'opnsense_api_key': '',
-            'opnsense_api_secret': ''
+            'opnsense_api_secret': '',
+            'ntfy_enabled': False,
+            'ntfy_server': 'https://ntfy.sh',
+            'ntfy_topic': 'abuseipdb-alerts',
+            'ntfy_token': '',
+            'ntfy_notify_malicious': True,
+            'ntfy_notify_suspicious': False,
+            'ntfy_priority': 3,
+            'ntfy_include_connection_details': True,
         }
     
     def _load_config(self):
@@ -67,6 +74,10 @@ class ConfigManager:
             # Alias section
             if cp.has_section('alias'):
                 self._load_alias_section(cp)
+
+            # ntfy section
+            if cp.has_section('ntfy'):
+                self._load_ntfy_section(cp)
                 
         except Exception as e:
             log_message(f"Error reading config: {str(e)}")
@@ -125,6 +136,27 @@ class ConfigManager:
             self._config['alias_include_suspicious'] = cp.get(section, 'IncludeSuspicious') == '1'
         if cp.has_option(section, 'MaxRecentHosts'):
             self._config['alias_max_recent_hosts'] = int(cp.get(section, 'MaxRecentHosts'))
+
+    def _load_ntfy_section(self, cp):
+        """Load ntfy configuration section"""
+        section = 'ntfy'
+        
+        if cp.has_option(section, 'Enabled'):
+            self._config['ntfy_enabled'] = cp.get(section, 'Enabled') == '1'
+        if cp.has_option(section, 'Server'):
+            self._config['ntfy_server'] = cp.get(section, 'Server')
+        if cp.has_option(section, 'Topic'):
+            self._config['ntfy_topic'] = cp.get(section, 'Topic')
+        if cp.has_option(section, 'Token'):
+            self._config['ntfy_token'] = cp.get(section, 'Token')
+        if cp.has_option(section, 'NotifyMalicious'):
+            self._config['ntfy_notify_malicious'] = cp.get(section, 'NotifyMalicious') == '1'
+        if cp.has_option(section, 'NotifySuspicious'):
+            self._config['ntfy_notify_suspicious'] = cp.get(section, 'NotifySuspicious') == '1'
+        if cp.has_option(section, 'Priority'):
+            self._config['ntfy_priority'] = int(cp.get(section, 'Priority'))
+        if cp.has_option(section, 'IncludeConnectionDetails'):
+            self._config['ntfy_include_connection_details'] = cp.get(section, 'IncludeConnectionDetails') == '1'
     
     def get_config(self):
         """Get the complete configuration dictionary"""

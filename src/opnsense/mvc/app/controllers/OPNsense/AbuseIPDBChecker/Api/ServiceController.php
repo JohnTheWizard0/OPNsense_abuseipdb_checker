@@ -381,6 +381,39 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * test ntfy configuration
+     */
+    public function testntfyAction()
+    {
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $input = json_decode($this->request->getRawBody(), true);
+            
+            $server = isset($input['server']) ? $input['server'] : '';
+            $topic = isset($input['topic']) ? $input['topic'] : '';
+            $token = isset($input['token']) ? $input['token'] : '';
+            $priority = isset($input['priority']) ? $input['priority'] : '3';
+            
+            if (empty($server) || empty($topic)) {
+                return array("status" => "error", "message" => "Server and topic are required");
+            }
+            
+            $response = $backend->configdRun("abuseipdbchecker testntfy " . 
+                escapeshellarg($server) . " " . 
+                escapeshellarg($topic) . " " . 
+                escapeshellarg($token) . " " . 
+                escapeshellarg($priority));
+                
+            $bckresult = json_decode(trim($response), true);
+            
+            if ($bckresult !== null) {
+                return $bckresult;
+            }
+        }
+        return ["status" => "error", "message" => "Unable to test ntfy configuration"];
+    }
+
+    /**
      * get all checked IPs with pagination and search
      */
     public function allipsAction()
