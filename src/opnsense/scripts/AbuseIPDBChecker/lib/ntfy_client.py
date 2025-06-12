@@ -21,7 +21,22 @@ class NtfyClient:
         self.token = config.get('ntfy_token', '')
         self.notify_malicious = config.get('ntfy_notify_malicious', True)
         self.notify_suspicious = config.get('ntfy_notify_suspicious', False)
-        self.priority = config.get('ntfy_priority', 3)
+        
+        # Handle priority safely
+        priority_val = config.get('ntfy_priority', 3)
+        try:
+            if isinstance(priority_val, str):
+                if priority_val == '' or priority_val == 'None':
+                    self.priority = 3
+                else:
+                    self.priority = int(priority_val)
+            else:
+                self.priority = int(priority_val)
+            # Clamp to valid range
+            self.priority = max(1, min(5, self.priority))
+        except (ValueError, TypeError):
+            self.priority = 3
+            
         self.include_connection_details = config.get('ntfy_include_connection_details', True)
         
         # Ensure server URL ends with topic
@@ -135,39 +150,66 @@ class NtfyClient:
                 'message': error_msg,
                 'exception': str(e)
             }
-    
+
     def _format_connection_details(self, connection_details):
         """Format connection details for notification"""
         if not connection_details:
             return ""
         
         try:
-            # Handle pipe-separated format
+            # Handle new JSON format with ports and last_seen
+            if connection_details.startswith('{') and "'ports':" in connection_details:
+                import ast
+                # Parse Python dict-like format
+                parsed_data = ast.literal_eval(connection_details)
+                
+                if 'ports' in parsed_data:
+                    ports_data = parsed_data['ports']
+                    connections = []
+                    
+                    # Handle ports as either dict keys or list
+                    if isinstance(ports_data, dict):
+                        connections = list(ports_data.keys())
+                    elif isinstance(ports_data, (list, set)):
+                        connections = list(ports_data)
+                    
+                    # Format connections for ntfy (keep concise)
+                    formatted_connections = []
+                    for conn in connections[:2]:  # Limit to 2 for brevity
+                        # Convert "accessed" to arrow format and extract port info
+                        if ' accessed ' in conn:
+                            parts = conn.split(' accessed ')
+                            if len(parts) == 2:
+                                source_part = parts[0]
+                                dest_part = parts[1]
+                                
+                                # Extract destination port for concise display
+                                if ':' in dest_part:
+                                    dest_port = dest_part.split(':')[-1]
+                                    formatted_connections.append(f"Port {dest_port}")
+                                else:
+                                    formatted_connections.append(f"-> {dest_part}")
+                    
+                    if formatted_connections:
+                        result = ', '.join(formatted_connections)
+                        if len(connections) > 2:
+                            result += f" (+{len(connections)-2} more)"
+                        return result
+            
+            # Handle pipe-separated format (legacy)
             if '|' in connection_details:
                 connections = connection_details.split('|')
-                # Take first 2 connections to keep notification concise
                 formatted_connections = []
+                
                 for conn in connections[:2]:
-                    if 'accessing' in conn:
-                        # Extract port information
-                        parts = conn.split(' accessing ')
-                        if len(parts) == 2:
-                            source_part = parts[0]
-                            dest_part = parts[1]
-                            
-                            # Extract source port
-                            if ':' in source_part:
-                                source_port = source_part.split(':')[-1]
-                            else:
-                                source_port = 'unknown'
-                            
-                            # Extract destination port
+                    if conn.strip() and 'accessed' in conn:
+                        # Convert to arrow format and extract port
+                        clean_conn = conn.strip().replace(' accessed ', ' -> ')
+                        if ' -> ' in clean_conn:
+                            dest_part = clean_conn.split(' -> ')[-1]
                             if ':' in dest_part:
-                                dest_port = dest_part.split(':')[-1]
-                            else:
-                                dest_port = 'unknown'
-                            
-                            formatted_connections.append(f"Port {dest_port}")
+                                port = dest_part.split(':')[-1]
+                                formatted_connections.append(f"Port {port}")
                 
                 if formatted_connections:
                     result = ', '.join(formatted_connections)
@@ -175,13 +217,20 @@ class NtfyClient:
                         result += f" (+{len(connections)-2} more)"
                     return result
             
-            # Fallback: just return first part of connection details
-            return connection_details.split('|')[0][:50] + "..." if len(connection_details) > 50 else connection_details
+            # Fallback: clean up single connection
+            cleaned = connection_details.replace(' accessed ', ' -> ').replace(' accessing ', ' -> ')
+            if ' -> ' in cleaned:
+                dest_part = cleaned.split(' -> ')[-1]
+                if ':' in dest_part:
+                    port = dest_part.split(':')[-1]
+                    return f"Port {port}"
+            
+            return "Connection details available"
             
         except Exception as e:
             log_message(f"Error formatting connection details for ntfy: {str(e)}")
-            return "Multiple connections"
-   
+            return "Connection info"
+
     def test_notification(self):
         """Send test notification to verify configuration"""
         if not self.enabled:

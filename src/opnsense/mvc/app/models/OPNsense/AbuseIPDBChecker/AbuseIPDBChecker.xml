@@ -135,24 +135,12 @@
                 <Required>N</Required>
                 <description>Notify on suspicious IPs (40-69% abuse score)</description>
             </NotifySuspicious>
-            <Priority type="OptionField">
+            <Priority type="IntegerField">
                 <default>3</default>
                 <Required>N</Required>
-                <OptionValues>
-                    <option1>1</option1>
-                    <option2>2</option2>
-                    <option3>3</option3>
-                    <option4>4</option4>
-                    <option5>5</option5>
-                </OptionValues>
-                <OptionLabels>
-                    <option1>Min</option1>
-                    <option2>Low</option2>
-                    <option3>Default</option3>
-                    <option4>High</option4>
-                    <option5>Max</option5>
-                </OptionLabels>
-                <description>Notification priority level</description>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>5</MaximumValue>
+                <description>Notification priority level (1=Min, 2=Low, 3=Default, 4=High, 5=Max)</description>
             </Priority>
             <IncludeConnectionDetails type="BooleanField">
                 <default>1</default>

@@ -301,12 +301,16 @@ class DaemonManager:
                         if config.get('ntfy_enabled', False):
                             try:
                                 ntfy_client = NtfyClient(config)
+                                log_message(f"ntfy client initialized successfully - will notify on malicious: {config.get('ntfy_notify_malicious', True)}, suspicious: {config.get('ntfy_notify_suspicious', False)}")
                             except Exception as e:
                                 log_message(f"Failed to initialize ntfy client: {str(e)}")
+                        else:
+                            log_message("ntfy notifications disabled in configuration")
 
-                        # In the threat detection loop, after the threat is processed, add:
                         if ntfy_client and threat_level >= 1:
                             try:
+                                log_message(f"Attempting to send ntfy notification for {ip} (threat_level: {threat_level}, score: {abuse_score}%)")
+                                
                                 # Send notification for detected threat
                                 ntfy_result = ntfy_client.send_threat_notification(
                                     ip_address=ip,
@@ -317,13 +321,22 @@ class DaemonManager:
                                     is_new_threat=not was_threat
                                 )
                                 
+                                log_message(f"ntfy notification result for {ip}: {ntfy_result['status']} - {ntfy_result.get('message', 'no message')}")
+                                
                                 if ntfy_result['status'] == 'success':
-                                    log_message(f"ntfy notification sent for {ip}")
-                                elif ntfy_result['status'] != 'skipped':
-                                    log_message(f"ntfy notification failed for {ip}: {ntfy_result['message']}")
+                                    log_message(f"✓ ntfy notification sent successfully for {ip}")
+                                elif ntfy_result['status'] == 'skipped':
+                                    log_message(f"ntfy notification skipped for {ip}: {ntfy_result.get('reason', 'unknown reason')}")
+                                else:
+                                    log_message(f"✗ ntfy notification failed for {ip}: {ntfy_result['message']}")
                                     
                             except Exception as e:
-                                log_message(f"Error sending ntfy notification for {ip}: {str(e)}")
+                                log_message(f"Exception sending ntfy notification for {ip}: {str(e)}")
+                                import traceback
+                                log_message(f"Full traceback: {traceback.format_exc()}")
+                        else:
+                            if threat_level >= 1:
+                                log_message(f"No ntfy notification sent for {ip} - ntfy_client: {ntfy_client is not None}, threat_level: {threat_level}")
                     else:
                         # Remove from threats if now safe
                         if was_threat:

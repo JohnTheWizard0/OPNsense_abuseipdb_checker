@@ -444,6 +444,28 @@ class AbuseIPDBChecker:
                 is_threat = True
             else:
                 self.db_manager.remove_threat(ip_address)
+
+            if is_threat and self.config.get('ntfy_enabled', False):
+                try:
+                    from lib.ntfy_client import NtfyClient
+                    ntfy_client = NtfyClient(self.config)
+                    
+                    ntfy_result = ntfy_client.send_threat_notification(
+                        ip_address=ip_address,
+                        abuse_score=abuse_score,
+                        threat_level=threat_level,
+                        country=country,
+                        connection_details='',  # No connection details for manual tests
+                        is_new_threat=True
+                    )
+                    
+                    if ntfy_result['status'] == 'success':
+                        log_message(f"ntfy notification sent for manual test of {ip_address}")
+                    elif ntfy_result['status'] != 'skipped':
+                        log_message(f"ntfy notification failed for manual test: {ntfy_result['message']}")
+                        
+                except Exception as e:
+                    log_message(f"Error sending ntfy notification for manual test: {str(e)}")
             
             # Update statistics
             daily_checks = int(self.db_manager.get_stat('daily_checks', '0'))
@@ -671,18 +693,31 @@ class AbuseIPDBChecker:
             log_message(error_msg)
             return {'status': 'error', 'message': error_msg}
    
+   
     def test_ntfy_configuration(self, server, topic, token='', priority='3'):
         """Test ntfy configuration with provided parameters"""
         log_message(f"Testing ntfy configuration: {server}/{topic}")
         
         try:
+            # Validate and clean priority
+            if not priority or priority == '':
+                priority = '3'
+            
+            # Handle priority safely
+            try:
+                priority_int = int(priority)
+                # Clamp to valid range
+                priority_int = max(1, min(5, priority_int))
+            except (ValueError, TypeError):
+                priority_int = 3
+            
             # Create temporary config for testing
             test_config = {
                 'ntfy_enabled': True,
                 'ntfy_server': server,
                 'ntfy_topic': topic,
                 'ntfy_token': token,
-                'ntfy_priority': int(priority),
+                'ntfy_priority': priority_int,
                 'ntfy_notify_malicious': True,
                 'ntfy_notify_suspicious': True,
                 'ntfy_include_connection_details': True

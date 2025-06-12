@@ -152,7 +152,7 @@
                '<i class="fa fa-info-circle"></i>' +
                '</button>';
     }
- 
+
     // Helper function to format connection details for popup
     function formatConnectionDetails(connectionDetails) {
         if (!connectionDetails || connectionDetails === '' || connectionDetails === 'NO_DATA') {
@@ -160,35 +160,35 @@
         }
         
         try {
-            // Try to parse as JSON first (new format with timestamps)
+            // Handle Python dict-like format: {'ports': {'165.22.132.138:58486 -> 192.168.1.13:443'}, 'last_seen': 1749468122.511056}
+            if (connectionDetails.includes("'ports':") && connectionDetails.includes("'last_seen':")) {
+                // Extract the connection string from the Python dict format
+                var portsMatch = connectionDetails.match(/'ports':\s*\{([^}]+)\}/);
+                if (portsMatch) {
+                    var portsContent = portsMatch[1];
+                    // Remove quotes around the connection string
+                    var connectionString = portsContent.replace(/['"]/g, '');
+                    
+                    var formatted = '<div class="connection-detail">';
+                    formatted += '<strong>Connection:</strong><br>';
+                    formatted += connectionString;
+                    formatted += '</div>';
+                    
+                    return formatted;
+                }
+            }
+            
+            // Handle standard JSON format
             if (connectionDetails.startsWith('{') || connectionDetails.startsWith('[')) {
-                var parsedData = JSON.parse(connectionDetails.replace(/'/g, '"'));
+                var cleanedData = connectionDetails.replace(/'/g, '"');
+                var parsedData = JSON.parse(cleanedData);
                 
                 if (parsedData.ports && Array.isArray(parsedData.ports)) {
                     var formatted = '';
                     parsedData.ports.forEach(function(conn, index) {
                         formatted += '<div class="connection-detail">';
                         formatted += '<strong>Connection ' + (index + 1) + ':</strong><br>';
-                        formatted += conn.replace(' accessing ', ' accessed ') + '<br>';
-                        if (parsedData.last_seen) {
-                            var timestamp = new Date(parsedData.last_seen * 1000);
-                            formatted += '<small class="text-muted">Time: ' + timestamp.toLocaleString() + '</small>';
-                        }
-                        formatted += '</div>';
-                    });
-                    return formatted;
-                } else if (parsedData.ports && typeof parsedData.ports === 'object') {
-                    // Handle set format like {'162.243.184.120:44394 accessing 192.168.1.13:443'}
-                    var connections = Object.keys(parsedData.ports);
-                    var formatted = '';
-                    connections.forEach(function(conn, index) {
-                        formatted += '<div class="connection-detail">';
-                        formatted += '<strong>Connection ' + (index + 1) + ':</strong><br>';
-                        formatted += conn.replace(' accessing ', ' accessed ') + '<br>';
-                        if (parsedData.last_seen) {
-                            var timestamp = new Date(parsedData.last_seen * 1000);
-                            formatted += '<small class="text-muted">Time: ' + timestamp.toLocaleString() + '</small>';
-                        }
+                        formatted += conn.replace(' accessing ', ' -> ').replace(' accessed ', ' -> ');
                         formatted += '</div>';
                     });
                     return formatted;
@@ -202,7 +202,7 @@
                 if (conn.trim()) {
                     formatted += '<div class="connection-detail">';
                     formatted += '<strong>Connection ' + (index + 1) + ':</strong><br>';
-                    formatted += conn.trim().replace(' accessing ', ' accessed ');
+                    formatted += conn.trim().replace(' accessing ', ' -> ').replace(' accessed ', ' -> ');
                     formatted += '</div>';
                 }
             });
@@ -210,10 +210,9 @@
             return formatted || '<span class="text-muted">No valid connection data found</span>';
             
         } catch (e) {
-            // If parsing fails, treat as plain text
-            return '<div class="connection-detail">' + 
-                connectionDetails.replace(' accessing ', ' accessed ') + 
-                '</div>';
+            // If all parsing fails, show raw but cleaned up
+            var cleaned = connectionDetails.replace(' accessing ', ' -> ').replace(' accessed ', ' -> ');
+            return '<div class="connection-detail">Connection:<br>' + cleaned + '</div>';
         }
     }
 
