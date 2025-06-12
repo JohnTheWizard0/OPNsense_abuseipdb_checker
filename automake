@@ -1,4 +1,4 @@
-pkg delete -y os-abuseipdbchecker-devel
+pkg delete -y os-abuseipdbchecker
 make package
 pkg add work/pkg/*.pkg
 chmod +x post_install.sh

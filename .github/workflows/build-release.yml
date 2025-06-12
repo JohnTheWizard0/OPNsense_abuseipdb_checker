@@ -1,0 +1,116 @@
+name: Build and Deploy OPNsense Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: false
+        default: 'latest'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Extract version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "push" ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ "$VERSION" == "latest" ]]; then
+            VERSION=$(date +%Y.%m.%d)
+          fi
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+        
+    - name: Build plugin in FreeBSD container
+      uses: vmactions/freebsd-vm@v1
+      with:
+        envs: 'VERSION'
+        usesh: true
+        prepare: |
+          pkg install -y python39 git
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Make build script executable
+          chmod +x build/build-plugin.sh
+          chmod +x build/generate-manifest.py
+          
+          # Run the build
+          cd /home/runner/work/OPNsense_abuseipdb_checker/OPNsense_abuseipdb_checker
+          ./build/build-plugin.sh "$VERSION"
+          
+          # List generated files
+          ls -la packages/
+          
+    - name: Upload packages as artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: opnsense-packages
+        path: packages/
+        
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      if: github.event_name == 'push'
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./packages
+        destination_dir: packages
+        
+    - name: Create GitHub Release
+      if: github.event_name == 'push'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          packages/os-abuseipdbchecker-*.pkg
+          packages/packagesite.pkg
+          packages/packagesite.yaml
+        body: |
+          ## AbuseIPDB Checker v${{ steps.version.outputs.version }}
+          
+          ### Quick Install
+          ```bash
+          # Method 1: Direct install
+          fetch https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/os-abuseipdbchecker-${{ steps.version.outputs.version }}.pkg
+          pkg add os-abuseipdbchecker-${{ steps.version.outputs.version }}.pkg
+          ```
+          
+          ### Repository Install
+          ```bash
+          # Add repository
+          fetch -o /usr/local/etc/pkg/repos/abuseipdbchecker.conf \
+            https://raw.githubusercontent.com/${{ github.repository }}/main/repository.conf
+          pkg update
+          pkg install os-abuseipdbchecker
+          ```
+          
+          ### Configuration
+          1. Navigate to **Services → AbuseIPDB Checker**
+          2. Enter your AbuseIPDB API key
+          3. Configure checking intervals
+          4. Enable the service
+          
+          ### What's New
+          - Enhanced threat detection
+          - Improved web interface
+          - Better error handling
+          
+          For full documentation visit: https://github.com/${{ github.repository }}
+        draft: false
+        prerelease: false

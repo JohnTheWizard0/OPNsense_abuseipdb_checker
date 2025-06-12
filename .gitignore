@@ -1,1 +1,5 @@
 **/ARC
+.vscode
+docs.txt
+OPNsense_abuseipdb_checker.code-workspace
+automake

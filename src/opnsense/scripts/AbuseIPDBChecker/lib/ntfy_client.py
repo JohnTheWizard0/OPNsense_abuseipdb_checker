@@ -76,21 +76,44 @@ class NtfyClient:
             # Build notification title (no emojis)
             status_text = "NEW" if is_new_threat else "UPDATED"
             title = f"{status_text} {threat_text} IP Detected"
-            
+
             # Build message content
             message_parts = [
                 f"Host: {ip_address}",
-                f"Threat Level: {threat_text} ({abuse_score}%)",
-                f"Country: {country}",
-                f"Action: {action}"
+                f"Threat Level: {threat_text} ({abuse_score}%)"
             ]
-            
+
+            # Add country with flag
+            country_flag = self._get_country_flag(country)
+            country_display = f"{country} {country_flag}".strip() if country_flag else (country or "Unknown")
+            message_parts.append(f"Country: {country_display}")
+
+            # Determine action based on threat level and config
+            if threat_level == 2:  # Malicious
+                if self.config.get('alias_enabled', True):
+                    action = "Added to MaliciousIPs alias"
+                else:
+                    action = "Detected (alias disabled)"
+            elif threat_level == 1:  # Suspicious
+                if self.config.get('alias_enabled', True) and self.config.get('alias_include_suspicious', False):
+                    action = "Added to MaliciousIPs alias"
+                else:
+                    action = "Monitored (not blocked)"
+            else:
+                action = "Monitored"
+
+            message_parts.append(f"Action: {action}")
+
             # Add connection details if enabled and available
             if self.include_connection_details and connection_details:
-                connection_info = self._format_connection_details(connection_details)
-                if connection_info:
-                    message_parts.append(f"Connections: {connection_info}")
-            
+                conn_info = self._format_connection_details(connection_details)
+                if conn_info['target_host'] and conn_info['ports_info']:
+                    message_parts.append(f"Connection: to {conn_info['target_host']} ({conn_info['ports_info']})")
+                elif conn_info['ports_info']:
+                    message_parts.append(f"Connections: {conn_info['ports_info']}")
+                elif conn_info['target_host']:
+                    message_parts.append(f"Target: {conn_info['target_host']}")
+
             message = "\n".join(message_parts)
             
             # Prepare headers with explicit UTF-8
@@ -152,84 +175,71 @@ class NtfyClient:
             }
 
     def _format_connection_details(self, connection_details):
-        """Format connection details for notification"""
+        """Format connection details for notification - returns dict with target_host and ports_info"""
         if not connection_details:
-            return ""
+            return {'target_host': '', 'ports_info': ''}
         
         try:
-            # Handle new JSON format with ports and last_seen
-            if connection_details.startswith('{') and "'ports':" in connection_details:
-                import ast
-                # Parse Python dict-like format
-                parsed_data = ast.literal_eval(connection_details)
-                
-                if 'ports' in parsed_data:
-                    ports_data = parsed_data['ports']
-                    connections = []
-                    
-                    # Handle ports as either dict keys or list
-                    if isinstance(ports_data, dict):
-                        connections = list(ports_data.keys())
-                    elif isinstance(ports_data, (list, set)):
-                        connections = list(ports_data)
-                    
-                    # Format connections for ntfy (keep concise)
-                    formatted_connections = []
-                    for conn in connections[:2]:  # Limit to 2 for brevity
-                        # Convert "accessed" to arrow format and extract port info
-                        if ' accessed ' in conn:
-                            parts = conn.split(' accessed ')
-                            if len(parts) == 2:
-                                source_part = parts[0]
-                                dest_part = parts[1]
-                                
-                                # Extract destination port for concise display
-                                if ':' in dest_part:
-                                    dest_port = dest_part.split(':')[-1]
-                                    formatted_connections.append(f"Port {dest_port}")
-                                else:
-                                    formatted_connections.append(f"-> {dest_part}")
-                    
-                    if formatted_connections:
-                        result = ', '.join(formatted_connections)
-                        if len(connections) > 2:
-                            result += f" (+{len(connections)-2} more)"
-                        return result
+            ports = set()
+            target_hosts = set()
             
-            # Handle pipe-separated format (legacy)
+            # Handle pipe-separated format (most common)
             if '|' in connection_details:
                 connections = connection_details.split('|')
-                formatted_connections = []
-                
-                for conn in connections[:2]:
-                    if conn.strip() and 'accessed' in conn:
-                        # Convert to arrow format and extract port
-                        clean_conn = conn.strip().replace(' accessed ', ' -> ')
-                        if ' -> ' in clean_conn:
-                            dest_part = clean_conn.split(' -> ')[-1]
+                for conn in connections:
+                    if conn.strip() and (':' in conn):
+                        # Extract destination IP and port from "sourceIP:port accessing destIP:port" format
+                        if ' accessing ' in conn:
+                            dest_part = conn.split(' accessing ')[-1].strip()
                             if ':' in dest_part:
-                                port = dest_part.split(':')[-1]
-                                formatted_connections.append(f"Port {port}")
+                                dest_ip, port = dest_part.rsplit(':', 1)
+                                if port.isdigit():
+                                    ports.add(port)
+                                    target_hosts.add(dest_ip)
+                        elif ' accessed ' in conn:
+                            dest_part = conn.split(' accessed ')[-1].strip()
+                            if ':' in dest_part:
+                                dest_ip, port = dest_part.rsplit(':', 1)
+                                if port.isdigit():
+                                    ports.add(port)
+                                    target_hosts.add(dest_ip)
+            
+            # Handle single connection format
+            elif ':' in connection_details:
+                if ' accessing ' in connection_details:
+                    dest_part = connection_details.split(' accessing ')[-1].strip()
+                    if ':' in dest_part:
+                        dest_ip, port = dest_part.rsplit(':', 1)
+                        if port.isdigit():
+                            ports.add(port)
+                            target_hosts.add(dest_ip)
+                elif ' accessed ' in connection_details:
+                    dest_part = connection_details.split(' accessed ')[-1].strip()
+                    if ':' in dest_part:
+                        dest_ip, port = dest_part.rsplit(':', 1)
+                        if port.isdigit():
+                            ports.add(port)
+                            target_hosts.add(dest_ip)
+            
+            # Format the outputs
+            target_host = list(target_hosts)[0] if target_hosts else ""
+            
+            ports_info = ""
+            if ports:
+                # Sort ports numerically and limit to first 3
+                sorted_ports = sorted(list(ports), key=lambda x: int(x))[:3]
+                port_list = [f"Port {port}" for port in sorted_ports]
+                ports_info = ', '.join(port_list)
                 
-                if formatted_connections:
-                    result = ', '.join(formatted_connections)
-                    if len(connections) > 2:
-                        result += f" (+{len(connections)-2} more)"
-                    return result
+                # Add indicator if there are more ports
+                if len(ports) > 3:
+                    ports_info += f" (+{len(ports)-3} more)"
             
-            # Fallback: clean up single connection
-            cleaned = connection_details.replace(' accessed ', ' -> ').replace(' accessing ', ' -> ')
-            if ' -> ' in cleaned:
-                dest_part = cleaned.split(' -> ')[-1]
-                if ':' in dest_part:
-                    port = dest_part.split(':')[-1]
-                    return f"Port {port}"
-            
-            return "Connection details available"
+            return {'target_host': target_host, 'ports_info': ports_info}
             
         except Exception as e:
             log_message(f"Error formatting connection details for ntfy: {str(e)}")
-            return "Connection info"
+            return {'target_host': '', 'ports_info': 'Connection info'}
 
     def test_notification(self):
         """Send test notification to verify configuration"""
@@ -302,3 +312,34 @@ class NtfyClient:
             'include_connection_details': self.include_connection_details,
             'url': self.url
         }
+    
+    def _get_country_flag(self, country_code):
+        """Convert country code to flag emoji"""
+        if not country_code or len(country_code) != 2:
+            return ""
+        
+        # Most common country flags
+        flag_map = {
+            'AD': '🇦🇩', 'AE': '🇦🇪', 'AF': '🇦🇫', 'AG': '🇦🇬', 'AL': '🇦🇱', 'AM': '🇦🇲', 'AR': '🇦🇷',
+            'AT': '🇦🇹', 'AU': '🇦🇺', 'AZ': '🇦🇿', 'BA': '🇧🇦', 'BB': '🇧🇧', 'BD': '🇧🇩', 'BE': '🇧🇪',
+            'BG': '🇧🇬', 'BH': '🇧🇭', 'BO': '🇧🇴', 'BR': '🇧🇷', 'BS': '🇧🇸', 'BW': '🇧🇼', 'BY': '🇧🇾',
+            'BZ': '🇧🇿', 'CA': '🇨🇦', 'CH': '🇨🇭', 'CL': '🇨🇱', 'CN': '🇨🇳', 'CO': '🇨🇴', 'CR': '🇨🇷',
+            'CU': '🇨🇺', 'CY': '🇨🇾', 'CZ': '🇨🇿', 'DE': '🇩🇪', 'DK': '🇩🇰', 'DO': '🇩🇴', 'DZ': '🇩🇿',
+            'EC': '🇪🇨', 'EE': '🇪🇪', 'EG': '🇪🇬', 'ES': '🇪🇸', 'ET': '🇪🇹', 'FI': '🇫🇮', 'FJ': '🇫🇯',
+            'FR': '🇫🇷', 'GB': '🇬🇧', 'GE': '🇬🇪', 'GH': '🇬🇭', 'GR': '🇬🇷', 'GT': '🇬🇹', 'HK': '🇭🇰',
+            'HN': '🇭🇳', 'HR': '🇭🇷', 'HT': '🇭🇹', 'HU': '🇭🇺', 'ID': '🇮🇩', 'IE': '🇮🇪', 'IL': '🇮🇱',
+            'IN': '🇮🇳', 'IQ': '🇮🇶', 'IR': '🇮🇷', 'IS': '🇮🇸', 'IT': '🇮🇹', 'JM': '🇯🇲', 'JO': '🇯🇴',
+            'JP': '🇯🇵', 'KE': '🇰🇪', 'KG': '🇰🇬', 'KH': '🇰🇭', 'KP': '🇰🇵', 'KR': '🇰🇷', 'KW': '🇰🇼',
+            'KZ': '🇰🇿', 'LA': '🇱🇦', 'LB': '🇱🇧', 'LI': '🇱🇮', 'LK': '🇱🇰', 'LT': '🇱🇹', 'LU': '🇱🇺',
+            'LV': '🇱🇻', 'LY': '🇱🇾', 'MA': '🇲🇦', 'MD': '🇲🇩', 'ME': '🇲🇪', 'MK': '🇲🇰', 'MM': '🇲🇲',
+            'MN': '🇲🇳', 'MO': '🇲🇴', 'MX': '🇲🇽', 'MY': '🇲🇾', 'MZ': '🇲🇿', 'NA': '🇳🇦', 'NG': '🇳🇬',
+            'NI': '🇳🇮', 'NL': '🇳🇱', 'NO': '🇳🇴', 'NP': '🇳🇵', 'NZ': '🇳🇿', 'OM': '🇴🇲', 'PA': '🇵🇦',
+            'PE': '🇵🇪', 'PH': '🇵🇭', 'PK': '🇵🇰', 'PL': '🇵🇱', 'PT': '🇵🇹', 'PY': '🇵🇾', 'QA': '🇶🇦',
+            'RO': '🇷🇴', 'RS': '🇷🇸', 'RU': '🇷🇺', 'RW': '🇷🇼', 'SA': '🇸🇦', 'SD': '🇸🇩', 'SE': '🇸🇪',
+            'SG': '🇸🇬', 'SI': '🇸🇮', 'SK': '🇸🇰', 'SO': '🇸🇴', 'SY': '🇸🇾', 'TH': '🇹🇭', 'TJ': '🇹🇯',
+            'TN': '🇹🇳', 'TR': '🇹🇷', 'TW': '🇹🇼', 'TZ': '🇹🇿', 'UA': '🇺🇦', 'UG': '🇺🇬', 'US': '🇺🇸',
+            'UY': '🇺🇾', 'UZ': '🇺🇿', 'VE': '🇻🇪', 'VN': '🇻🇳', 'YE': '🇾🇪', 'ZA': '🇿🇦', 'ZM': '🇿🇲',
+            'ZW': '🇿🇼'
+        }
+        
+        return flag_map.get(country_code.upper(), "")
