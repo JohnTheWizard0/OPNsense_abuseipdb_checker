@@ -18,7 +18,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # Check if OPNsense
-if [ ! -f "/usr/local/opnsense/version/opnsense" ]; then
+if [ ! -f "/usr/local/opnsense/version/core" ]; then
     echo "❌ This installer is for OPNsense only"
     exit 1
 fi
