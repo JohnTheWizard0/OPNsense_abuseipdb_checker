@@ -35,8 +35,16 @@ def scan_files(build_dir):
 def generate_manifest(name, version, build_dir, output_file):
     """Generate complete package manifest"""
     
-    # Scan files
     files = scan_files(build_dir)
+    
+    # Read script files
+    script_dir = Path(__file__).parent
+    
+    with open(script_dir / "post-install.sh", "r") as f:
+        post_install_script = f.read()
+    
+    with open(script_dir / "post-deinstall.sh", "r") as f:
+        post_deinstall_script = f.read()
     
     # Define dependencies based on your plugin requirements
     dependencies = {
@@ -63,20 +71,8 @@ def generate_manifest(name, version, build_dir, output_file):
         "deps": dependencies,
         "files": files,
         "scripts": {
-            "post-install": [
-                "echo 'Configuring AbuseIPDB Checker...'",
-                "mkdir -p /var/log/abuseipdbchecker",
-                "mkdir -p /var/db/abuseipdbchecker",
-                "chmod 777 /var/log/abuseipdbchecker",
-                "chmod 777 /var/db/abuseipdbchecker",
-                "/usr/local/opnsense/scripts/AbuseIPDBChecker/setup_database.py",
-                "/usr/local/etc/rc.d/configd restart",
-                "echo 'AbuseIPDB Checker installed successfully.'"
-            ],
-            "post-deinstall": [
-                "echo 'Cleaning up AbuseIPDB Checker...'",
-                "/usr/local/etc/rc.d/configd restart"
-            ]
+            "post-install": post_install_script,
+            "post-deinstall": post_deinstall_script
         },
         "annotations": {
             "repo_type": "binary",

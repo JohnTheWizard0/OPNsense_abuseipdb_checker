@@ -1,5 +1,4 @@
-#!/bin/bash
-# build/build-plugin.sh - Complete automated builder
+#!/bin/sh
 
 set -e
 
