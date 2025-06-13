@@ -43,6 +43,20 @@ find "${BUILD_DIR}" -type f -name "*.php" -exec chmod 644 {} \;
 find "${BUILD_DIR}" -type f -name "*.py" -exec chmod 755 {} \;
 find "${BUILD_DIR}" -type f -name "*.sh" -exec chmod 755 {} \;
 find "${BUILD_DIR}" -type d -exec chmod 755 {} \;
+find "${BUILD_DIR}/usr/local/etc/rc.d" -type f -exec chmod 755 {} \;
+
+echo "Verifying RC script permissions:"
+ls -la "${BUILD_DIR}/usr/local/etc/rc.d/abuseipdbchecker"
+
+# Step 2.5: Verify critical permissions
+RCSCRIPT="${BUILD_DIR}/usr/local/etc/rc.d/abuseipdbchecker"
+if [ ! -x "$RCSCRIPT" ]; then
+    echo "❌ RC script not executable: $RCSCRIPT"
+    ls -la "$RCSCRIPT"
+    exit 1
+fi
+
+echo "✓ Critical executable permissions verified"
 
 # Step 3: Generate file manifest
 echo "Generating file manifest..."
