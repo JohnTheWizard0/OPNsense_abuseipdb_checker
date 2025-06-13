@@ -49,9 +49,7 @@ def generate_manifest(name, version, build_dir, output_file):
     # Define dependencies based on your plugin requirements
     dependencies = {
         "php82": {"origin": "lang/php82", "version": "8.2.*"},
-        "py39-requests": {"origin": "www/py-requests", "version": "2.*"},
-        "sqlite3": {"origin": "databases/sqlite3", "version": "3.*"},
-        "py39-requests": {"origin": "www/py-requests", "version": "2.*"}
+        "sqlite3": {"origin": "databases/sqlite3", "version": "3.*"}
     }
     
     # Create manifest
