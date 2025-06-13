@@ -52,7 +52,6 @@ def generate_manifest(name, version, build_dir, output_file):
         "py39-requests": {"origin": "www/py-requests", "version": "2.*"},
         "sqlite3": {"origin": "databases/sqlite3", "version": "3.*"},
         "py39-requests": {"origin": "www/py-requests", "version": "2.*"}
-        
     }
     
     # Create manifest
