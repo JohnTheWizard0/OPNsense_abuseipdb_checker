@@ -60,7 +60,41 @@ pkg create -M "${BUILD_DIR}/+MANIFEST" -r "${BUILD_DIR}" -o "${PACKAGES_DIR}/"
 # Step 5: Update repository metadata
 echo "Updating repository..."
 cd "${PACKAGES_DIR}"
-pkg repo .
+
+# Use existing meta.conf or create if missing
+if [ ! -f "meta.conf" ]; then
+    echo "Creating meta.conf..."
+    cat > meta.conf << 'EOF'
+version = 2;
+packing_format = "txz";
+manifests = "packagesite.yaml";
+filesite = "filesite.yaml";
+manifests_archive = "packagesite";
+filesite_archive = "filesite";
+EOF
+fi
+
+# Generate repository with verbose output
+echo "Generating repository metadata..."
+pkg repo . || {
+    echo "❌ pkg repo command failed"
+    ls -la
+    exit 1
+}
+
+# List generated files for debugging
+echo "Repository files generated:"
+ls -la *.pkg *.yaml 2>/dev/null || true
+
+# More lenient verification - check for any repository files
+if [ -f "packagesite.yaml" ] || [ -f "packagesite.pkg" ]; then
+    echo "✓ Repository metadata generated successfully"
+else
+    echo "❌ Repository generation failed - no metadata files found"
+    echo "Directory contents:"
+    ls -la
+    exit 1
+fi
 
 # Step 6: Generate installation stats
 PACKAGE_FILE="${PACKAGES_DIR}/os-${PLUGIN_NAME}-${PLUGIN_VERSION}.pkg"
